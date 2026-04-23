@@ -1,0 +1,51 @@
+{
+  "title": "FitSense Overview",
+  "uid": "fitsense-overview",
+  "version": 1,
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1,
+      "title": "HR per Club (last 1h)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "InfluxDB",
+      "targets": [
+        {
+          "query": "from(bucket: \"heartrate\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"hr_data\")\n  |> filter(fn: (r) => r[\"_field\"] == \"hr\")\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)\n  |> group(columns: [\"club_id\"])",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Active Members",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": "PostgreSQL",
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) as active_members FROM users WHERE status = 'active' AND role = 'member'",
+          "refId": "A",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Active Clubs",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": "PostgreSQL",
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) as active_clubs FROM clubs WHERE status = 'active'",
+          "refId": "A",
+          "format": "table"
+        }
+      ]
+    }
+  ],
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s"
+}

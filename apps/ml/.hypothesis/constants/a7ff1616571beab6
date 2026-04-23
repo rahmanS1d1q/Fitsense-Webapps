@@ -1,0 +1,4 @@
+# file: C:\Users\ASUS\AppData\Roaming\Python\Python310\site-packages\_pytest\timing.py
+# hypothesis_version: 6.151.12
+
+[2020, 'perf_counter', 'sleep', 'time']

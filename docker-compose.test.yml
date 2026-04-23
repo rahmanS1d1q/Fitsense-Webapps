@@ -1,0 +1,62 @@
+version: "3.9"
+
+# Test environment — isolated ports, no production data
+services:
+  postgres-test:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: fitsense_test
+      POSTGRES_USER: fitsense_test
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fitsense_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  influxdb-test:
+    image: influxdb:2.7
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: test_password
+      DOCKER_INFLUXDB_INIT_ORG: fitsense_test
+      DOCKER_INFLUXDB_INIT_BUCKET: heartrate_test
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: test-token
+    ports:
+      - "8087:8086"
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  emqx-test:
+    image: emqx:5
+    environment:
+      EMQX_NODE__NAME: emqx@127.0.0.1
+      EMQX_AUTHENTICATION__1__MECHANISM: password_based
+      EMQX_AUTHENTICATION__1__BACKEND: http
+      EMQX_AUTHENTICATION__1__URL: http://host.docker.internal:3002/api/mqtt/auth
+      EMQX_AUTHORIZATION__SOURCES__1__TYPE: http
+      EMQX_AUTHORIZATION__SOURCES__1__URL: http://host.docker.internal:3002/api/mqtt/acl
+    ports:
+      - "1884:1883"
+      - "8085:8083"
+    healthcheck:
+      test: ["CMD", "emqx", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10

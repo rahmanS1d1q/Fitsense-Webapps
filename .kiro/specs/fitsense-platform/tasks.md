@@ -1,0 +1,486 @@
+# Rencana Implementasi: FitSense Platform
+
+## Overview
+
+Implementasi platform FitSense secara bertahap, dimulai dari infrastruktur dan fondasi data, kemudian layanan inti (API Server, ML Service), lalu antarmuka pengguna (Web Dashboard, Mobile App), dan diakhiri dengan integrasi penuh serta pengujian.
+
+Setiap task membangun di atas task sebelumnya. Tidak ada kode yang dibiarkan tergantung tanpa diwiring ke komponen yang sudah ada.
+
+## Tasks
+
+- [x] 1. Setup infrastruktur Docker dan konfigurasi environment
+  - Buat `docker-compose.yml` dengan semua service: nginx, api, ml, web, emqx, influxdb, postgres, redis, grafana
+  - Buat `docker-compose.test.yml` dengan service test yang terisolasi (port berbeda): postgres-test :5433, influxdb-test :8087, redis-test :6380, emqx-test :1884/:8085
+  - Buat `.env.example` dengan semua variabel environment yang diperlukan
+  - Buat `nginx/nginx.conf` untuk routing port 443 (REST ke API :3001) dan 8084 (MQTT WSS ke EMQX :8083)
+  - Buat script `scripts/test-setup.sh` untuk lifecycle test: spin up `docker-compose.test.yml`, jalankan migrasi ke test DB, jalankan test suite, tear down dengan `docker compose down -v`
+  - Buat script `scripts/db-clean.sh` untuk isolasi antar test: `TRUNCATE ... CASCADE` di PostgreSQL, `FLUSHDB` di Redis, dan `deleteData()` di InfluxDB bucket test
+  - _Requirements: 16.1, 16.3, 20.1, 20.2_
+
+- [x] 2. Konfigurasi EMQX broker
+  - Buat `emqx/emqx.conf` dengan konfigurasi eksplisit:
+    - Listener MQTT TCP internal di port 1883
+    - Listener MQTT WebSocket internal di port 8083
+    - Listener MQTT over TLS di port 8883 (untuk Mobile App)
+    - Authentication webhook: `POST http://api:3001/api/mqtt/auth`
+    - Authorization (ACL) webhook: `POST http://api:3001/api/mqtt/acl`
+    - Nonaktifkan anonymous access
+    - Set `max_connections` dan `max_subscriptions` sesuai kebutuhan skala 100+ sensor
+  - Buat `emqx/acl.conf` sebagai fallback ACL jika webhook tidak dapat dijangkau (deny all)
+  - Verifikasi EMQX dapat dijangkau dari API Server dan ML Service di Docker network internal
+  - _Requirements: 6.1, 6.2, 6.3_
+
+- [x] 3. Konfigurasi Grafana datasource
+  - Buat `grafana/provisioning/datasources/influxdb.yaml` untuk datasource InfluxDB v2 (Flux query)
+  - Buat `grafana/provisioning/datasources/postgres.yaml` untuk datasource PostgreSQL
+  - Buat `grafana/provisioning/dashboards/fitsense-overview.json` dengan dashboard dasar: HR per club, jumlah member aktif, status layanan
+  - Verifikasi Grafana dapat query InfluxDB dan PostgreSQL saat startup
+  - _Requirements: 16.1_
+
+- [x] 4. Inisialisasi API Server (Node.js + Express)
+  - [x] 4.1 Setup project struktur `apps/api` dengan TypeScript, Express, dan dependency utama
+    - Install: `express`, `jsonwebtoken`, `bcrypt`, `pg`, `@influxdata/influxdb-client`, `ioredis`, `mqtt`, `nodemailer`, `node-cron`, `fast-check` (dev), `jest` (dev), `ts-jest` (dev)
+    - Buat `src/index.ts`, `src/app.ts`, konfigurasi TypeScript, dan script npm: `dev`, `build`, `test`, `db:migrate`, `db:migrate:test`
+    - _Requirements: 2.1, 7.1_
+  - [x] 4.2 Buat skema migrasi PostgreSQL
+    - Buat file migrasi SQL untuk semua tabel: `clubs`, `users`, `sessions`, `devices`, `ml_recommendations`, `invite_codes`, `password_reset_tokens`
+    - Sertakan semua index: `idx_users_club_id`, `idx_users_email`, `idx_sessions_user_id`, `idx_sessions_club_id`, `idx_sessions_started_at`, `idx_ml_rec_user_id`, `idx_ml_rec_generated_at`, `idx_invite_codes_code`, `idx_invite_codes_club_id`, `idx_invite_codes_expires_at`, `idx_pwd_reset_token_hash`, `idx_pwd_reset_user_id`, `idx_pwd_reset_expires_at`
+    - _Requirements: 1.1, 3.1, 4.1, 10.1, 12.5, 18.1, 19.1_
+  - [x] 4.3 Buat konfigurasi InfluxDB bucket dan retention policy
+    - Script setup bucket `heartrate` (retention 90 hari) dan `heartrate_aggregated` (retention 2 tahun)
+    - _Requirements: 20.1, 20.2, 20.3_
+
+- [x] 5. Implementasi AuthService dan endpoint autentikasi
+  - [x] 5.1 Implementasi `AuthService`: login, JWT generation, MQTT_Token generation, refresh, logout
+    - JWT masa berlaku 7 hari, MQTT_Token masa berlaku 30 menit
+    - Simpan refresh token di Redis, invalidasi saat logout
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.8_
+  - [x] 5.2 Tulis unit test untuk AuthService
+    - Login email tidak terdaftar → HTTP 401
+    - Login password salah → HTTP 401
+    - Refresh dengan token tidak valid → HTTP 401
+    - _Requirements: 2.1, 2.2_
+  - [x] 5.3 Implementasi rate limiting login (Redis counter per IP)
+    - Maksimal 5 percobaan gagal dalam 15 menit per IP → HTTP 429
+    - Catat setiap percobaan gagal ke log (IP + timestamp, tanpa password)
+    - _Requirements: 2.9, 2.10_
+  - [x] 5.4 Tulis property test untuk rate limiting login (Property 4)
+    - **Property 4: Rate Limiting Login**
+    - **Validates: Requirements 2.9**
+  - [x] 5.5 Tulis property test untuk masa berlaku token (Property 3)
+    - **Property 3: Token Login — Masa Berlaku**
+    - **Validates: Requirements 2.1**
+
+- [x] 6. Implementasi RBAC middleware dan isolasi tenant
+  - [x] 6.1 Buat `auth.middleware.ts` untuk validasi JWT pada setiap request
+    - Kembalikan HTTP 401 jika token tidak valid atau kedaluwarsa
+    - _Requirements: 2.5_
+  - [x] 6.2 Buat `rbac.middleware.ts` untuk pemeriksaan role berbasis RBAC
+    - Kembalikan HTTP 403 jika role tidak memiliki izin
+    - _Requirements: 2.6_
+  - [x] 6.3 Buat `tenant.middleware.ts` untuk validasi `clubId` di URL vs `club_id` di JWT
+    - Kembalikan HTTP 403 jika `clubId` tidak sesuai (kecuali `super_admin`)
+    - _Requirements: 15.1, 15.3, 15.5_
+  - [x] 6.4 Tulis property test untuk RBAC endpoint club (Property 2)
+    - **Property 2: RBAC — Akses Endpoint Club**
+    - **Validates: Requirements 1.7, 2.6**
+  - [x] 6.5 Tulis property test untuk isolasi tenant cross-club (Property 5)
+    - **Property 5: Isolasi Tenant — Akses Cross-Club**
+    - **Validates: Requirements 3.2, 15.1, 15.3, 15.5**
+
+- [x] 7. Implementasi ClubService dan endpoint manajemen club
+  - [x] 7.1 Implementasi `ClubService`: register club, list, update, suspend
+    - Validasi slug: hanya alfanumerik lowercase dan tanda hubung, panjang 3-50 karakter
+    - Kembalikan HTTP 409 jika slug duplikat
+    - Suspend club mencabut akses semua pengguna club tersebut
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
+  - [x] 7.2 Buat route `POST /api/auth/register-club`, `GET /api/clubs`, `PATCH /api/clubs/:clubId`, `DELETE /api/clubs/:clubId`
+    - Endpoint manajemen club hanya untuk `super_admin`
+    - _Requirements: 1.1, 1.4, 1.5, 1.6, 1.7_
+  - [x] 7.3 Tulis unit test untuk ClubService
+    - Registrasi dengan slug duplikat → HTTP 409
+    - Akses endpoint club dengan role `member` → HTTP 403
+    - _Requirements: 1.2, 1.7_
+  - [x] 7.4 Tulis property test untuk validasi format slug (Property 1)
+    - **Property 1: Validasi Format Slug Club**
+    - **Validates: Requirements 1.3**
+
+- [x] 8. Implementasi MemberService dan DeviceService
+  - [x] 8.1 Implementasi `MemberService`: CRUD member dengan validasi email unik global
+    - Club_Owner dapat membuat, memperbarui, menonaktifkan member
+    - Trainer dan Club_Owner dapat melihat daftar member club-nya
+    - Member hanya dapat melihat profil dirinya sendiri
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
+  - [x] 8.2 Buat route member: `GET/POST /api/clubs/:clubId/members`, `GET/PATCH/DELETE /api/clubs/:clubId/members/:userId`
+    - _Requirements: 3.1, 3.3, 3.4, 3.5, 3.6_
+  - [x] 8.3 Implementasi `DeviceService`: registrasi perangkat dengan validasi tipe dan MAC address unik per member
+    - Hanya tipe `coospo_h6` dan `coospo_hw706` yang diterima
+    - Kembalikan HTTP 409 jika MAC address duplikat untuk member yang sama
+    - _Requirements: 4.1, 4.2, 4.3_
+  - [x] 8.4 Tulis unit test untuk DeviceService
+    - Pendaftaran device dengan mac_address duplikat → HTTP 409
+    - _Requirements: 4.2_
+  - [x] 8.5 Tulis property test untuk validasi tipe perangkat (Property 6)
+    - **Property 6: Validasi Tipe Perangkat**
+    - **Validates: Requirements 4.3**
+
+- [x] 9. Implementasi HRZoneClassifier
+  - [x] 9.1 Implementasi fungsi `classifyZone(hr, age)` di `src/services/hr-zone.service.ts`
+    - Threshold: rest < 50%, fat_burn 50-60%, cardio 60-70%, aerobic 70-80%, peak ≥ 80% dari Max_HR (220 - usia)
+    - Kembalikan `unknown` dan catat warning jika usia tidak tersedia atau nol
+    - _Requirements: 7.5, 7.6, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
+  - [x] 9.2 Tulis unit test untuk HRZoneClassifier
+    - Usia = 0 → zona `unknown`
+    - Setiap threshold boundary (tepat di batas zona)
+    - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
+  - [x] 9.3 Tulis property test untuk determinisme dan kelengkapan HR Zone (Property 8)
+    - **Property 8: Klasifikasi HR Zone — Determinisme dan Kelengkapan**
+    - **Validates: Requirements 7.5, 7.6, 8.1, 8.2, 8.3, 8.4, 8.5, 8.7**
+
+- [x] 10. Implementasi MQTT Webhook Handler (Auth & ACL)
+  - [x] 10.1 Implementasi `MqttWebhookHandler` untuk endpoint `POST /api/mqtt/auth`
+    - Validasi MQTT_Token dari request EMQX webhook
+    - _Requirements: 6.1, 6.2_
+  - [x] 10.2 Implementasi `MqttWebhookHandler` untuk endpoint `POST /api/mqtt/acl`
+    - Terapkan ACL matrix sesuai role: member, trainer, club_owner, super_admin, ml_service
+    - Member: publish hanya ke topik HR miliknya, subscribe HR dan alerts miliknya
+    - Trainer/Club_Owner: deny publish, subscribe `fitsense/{club_id}/#` dan `/+/alerts`
+    - Super_Admin: deny publish, subscribe `fitsense/#`
+    - ML_Service: publish hanya ke `/alerts`, deny lainnya
+    - Web Dashboard: deny semua publish
+    - _Requirements: 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10, 6.11_
+  - [x] 10.3 Tulis property test untuk ACL MQTT komprehensif (Property 7)
+    - **Property 7: ACL MQTT — Enforcement Komprehensif**
+    - **Validates: Requirements 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10, 6.11**
+
+- [x] 11. Checkpoint — Pastikan semua test lulus
+  - Pastikan semua unit test dan property test yang sudah ditulis lulus
+  - Tanyakan kepada user jika ada pertanyaan sebelum melanjutkan
+
+- [x] 12. Implementasi MqttConsumer dan BatchWriter
+  - [x] 12.1 Implementasi `MqttConsumer` di `src/services/mqtt.consumer.ts`
+    - Subscribe ke topik `fitsense/#` menggunakan koneksi MQTT internal ke EMQX `:1883`
+    - Parsing dan validasi payload JSON: field wajib `hr`, `session_id`, `timestamp`; opsional `rr`
+    - Validasi range: `hr` integer 20-300 bpm, `rr` float 200-2000 ms
+    - Buang pesan tidak valid dan catat warning ke log
+    - Distribusikan secara paralel ke BatchWriter dan ML Service via `HTTP POST /ml/anomaly-check`
+    - Jika ML Service tidak dapat dijangkau saat distribusi, catat warning ke log dan lanjutkan proses BatchWriter (jangan drop data)
+    - Tulis `session_last_hr:{session_id}` ke Redis setiap data HR valid diterima (TTL 2 jam)
+    - Tulis `zone_state:{user_id}` ke Redis (zona aktif + timestamp masuk zona, TTL 2 jam)
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 17.1, 17.2, 17.3, 17.4, 17.5_
+  - [x] 12.2 Tulis unit test untuk MQTT payload validation
+    - Payload tanpa field `hr` → pesan dibuang
+    - Payload bukan JSON valid → pesan dibuang
+    - `hr` di luar range 20-300 → pesan dibuang
+    - ML Service down → data tetap masuk BatchWriter, warning dicatat
+    - _Requirements: 17.2, 17.3, 17.4_
+  - [x] 12.3 Tulis property test untuk round-trip serialisasi payload MQTT (Property 16)
+    - **Property 16: Validasi Payload MQTT — Round-Trip Serialisasi**
+    - **Validates: Requirements 17.1, 17.4, 17.5, 17.6**
+  - [x] 12.4 Implementasi `BatchWriter` di `src/services/batch.writer.ts`
+    - Akumulasi data HR di buffer Redis (`hr_buffer:{club_id}:{user_id}`)
+    - Flush ke InfluxDB setiap 1 detik dengan tag: `club_id`, `user_id`, `session_id`, field: `hr`, `rr`, `hr_zone`
+    - Jika flush gagal, pertahankan data di Redis dan retry pada siklus berikutnya
+    - Jika gagal > 10 siklus berturut-turut, log CRITICAL dan kirim alert monitoring
+    - _Requirements: 7.2, 7.3, 7.4, 16.4_
+
+- [x] 13. Implementasi SessionService dan endpoint sesi
+  - [x] 13.1 Implementasi `SessionService`: start sesi, end sesi, query sesi historis
+    - Start: buat entri sesi baru, kembalikan HTTP 409 jika sesi aktif sudah ada
+    - End: hitung dan simpan `avg_hr`, `max_hr`, `min_hr`, `duration_minutes`, `hr_zone` dominan dari InfluxDB
+    - Setelah end, panggil `POST /ml/analyze-session` secara async (fire-and-forget)
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
+  - [x] 13.2 Buat route sesi: `POST /api/sessions/start`, `POST /api/sessions/end`, `GET /api/clubs/:clubId/members/:userId/sessions`, `GET /api/clubs/:clubId/members/:userId/sessions/:sessionId`
+    - _Requirements: 10.1, 10.2, 10.3, 10.5, 10.6_
+  - [x] 13.3 Tulis unit test untuk SessionService
+    - Start sesi ketika sesi aktif sudah ada → HTTP 409
+    - _Requirements: 10.2_
+  - [x] 13.4 Tulis property test untuk konsistensi statistik sesi (Property 12)
+    - **Property 12: Statistik Sesi — Konsistensi Kalkulasi**
+    - **Validates: Requirements 10.3**
+  - [x] 13.5 Implementasi `OrphanSessionJob` menggunakan `node-cron` (jadwal setiap 30 menit)
+    - Baca semua key `session_last_hr:{session_id}` dari Redis
+    - Tutup sesi yang tidak aktif > 60 menit dengan `ended_at` = timestamp HR terakhir, tandai `auto_closed: true`
+    - Panggil `POST /ml/analyze-session` async jika durasi sesi > 5 menit
+    - _Requirements: 10.7, 10.8_
+  - [x] 13.6 Tulis property test untuk orphan session auto-close (Property 13)
+    - **Property 13: Orphan Session — Auto-Close**
+    - **Validates: Requirements 10.7**
+
+- [x] 14. Implementasi HRQueryService dan endpoint riwayat HR
+  - [x] 14.1 Implementasi `HRQueryService` untuk query InfluxDB dengan filter tenant
+    - Dukung interval: `1s`, `10s`, `1m`, `5m`, `1h`
+    - Validasi format ISO 8601 untuk `from` dan `to` → HTTP 400 jika tidak valid
+    - Validasi rentang waktu maksimal 30 hari → HTTP 400 jika melebihi
+    - Selalu sertakan filter `club_id` dan `user_id` di setiap query Flux
+    - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 15.2_
+  - [x] 14.2 Buat route `GET /api/clubs/:clubId/members/:userId/hr`
+    - _Requirements: 11.1_
+  - [x] 14.3 Tulis unit test untuk HRQueryService
+    - Query dengan rentang > 30 hari → HTTP 400
+    - Query dengan format tanggal tidak valid → HTTP 400
+    - _Requirements: 11.3, 11.4_
+  - [x] 14.4 Tulis property test untuk HR history round-trip query (Property 14)
+    - **Property 14: HR History — Round-Trip Query**
+    - **Validates: Requirements 11.1, 11.5**
+
+- [x] 15. Implementasi InviteService dan PasswordResetService
+  - [x] 15.1 Implementasi `InviteService`: generate kode undangan, validasi, registrasi mandiri member
+    - Generate kode unik berlaku 7 hari
+    - Endpoint `POST /api/clubs/:clubId/invite` untuk Club_Owner dan Trainer
+    - Endpoint `POST /api/auth/register-member` dengan validasi kode undangan
+    - Kembalikan HTTP 410 jika kode tidak valid atau expired
+    - Kembalikan HTTP 409 jika email sudah terdaftar
+    - Validasi password: minimal 8 karakter, satu huruf besar, satu huruf kecil, satu angka
+    - Tandai kode sebagai `used` setelah registrasi berhasil (single use)
+    - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7_
+  - [x] 15.2 Tulis unit test untuk InviteService
+    - Penggunaan kode undangan yang sudah expired → HTTP 410
+    - Registrasi mandiri dengan kode valid → akun member terbuat, kode ditandai used
+    - _Requirements: 18.3, 18.6_
+  - [x] 15.3 Tulis property test untuk validasi password (Property 17)
+    - **Property 17: Validasi Password — Syarat Minimum**
+    - **Validates: Requirements 18.5**
+  - [x] 15.4 Tulis property test untuk kode undangan single use (Property 18)
+    - **Property 18: Kode Undangan — Single Use**
+    - **Validates: Requirements 18.6, 18.7**
+  - [x] 15.5 Implementasi `PasswordResetService`: forgot password, reset password
+    - `POST /api/auth/forgot-password`: kirim email reset via `nodemailer` jika email terdaftar, selalu kembalikan HTTP 200 (anti-enumerasi)
+    - Generate raw token (UUID v4 + timestamp), simpan SHA-256 hash-nya di tabel `password_reset_tokens`, berlaku 1 jam
+    - Rate limit: maksimal 3 permintaan per email per jam (Redis counter `rate_limit:reset:{email}`)
+    - `POST /api/auth/reset-password`: hash token dari request, cari di DB, verifikasi tidak expired dan belum dipakai, update password, batalkan semua sesi aktif
+    - Kembalikan HTTP 410 jika token tidak valid, expired, atau sudah dipakai
+    - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6_
+  - [x] 15.6 Tulis unit test untuk PasswordResetService
+    - Forgot password dengan email tidak terdaftar → HTTP 200 (pesan identik)
+    - Reset password dengan token SHA-256 valid → password diperbarui, semua sesi dicabut
+    - Penggunaan token reset yang sudah dipakai → HTTP 410
+    - _Requirements: 19.2, 19.3, 19.5_
+  - [x] 15.7 Tulis property test untuk anti-enumerasi email (Property 19)
+    - **Property 19: Anti-Enumerasi Email — Reset Password**
+    - **Validates: Requirements 19.2**
+  - [x] 15.8 Tulis property test untuk token reset single use (Property 20)
+    - **Property 20: Token Reset Password — Single Use**
+    - **Validates: Requirements 19.5**
+
+- [x] 16. Implementasi endpoint storage stats dan health check API Server
+  - [x] 16.1 Buat endpoint `GET /api/admin/storage/stats` (super_admin only)
+    - Kembalikan ukuran storage InfluxDB per club, jumlah data point, estimasi hari tersisa
+    - _Requirements: 20.5_
+  - [x] 16.2 Buat endpoint health check `GET /api/health`
+    - Verifikasi koneksi ke PostgreSQL, InfluxDB, dan Redis
+    - Kembalikan respons dalam < 200ms
+    - _Requirements: 16.3_
+
+- [x] 17. Checkpoint — Pastikan semua test API Server lulus
+  - Pastikan semua unit test dan property test API Server lulus
+  - Tanyakan kepada user jika ada pertanyaan sebelum melanjutkan
+
+- [x] 18. Inisialisasi ML Service (Python + FastAPI)
+  - [x] 18.1 Setup project struktur `apps/ml` dengan FastAPI dan dependency utama
+    - Install: `fastapi`, `uvicorn`, `pydantic`, `psycopg2-binary`, `influxdb-client`, `redis`, `paho-mqtt`, `apscheduler`, `hypothesis` (dev), `pytest` (dev), `pytest-asyncio` (dev)
+    - Buat `main.py`, `routers/`, `models/`, `Dockerfile`
+    - Konfigurasi koneksi MQTT internal: host = `emqx` (Docker service name), port = `1883`, client_id = `ml_service`, username/password dari environment variable `ML_MQTT_USERNAME` dan `ML_MQTT_PASSWORD`
+    - _Requirements: 9.1, 12.1, 16.1_
+  - [x] 18.2 Implementasi `ZoneStateTracker` menggunakan Redis
+    - Simpan dan baca `zone_state:{user_id}` sebagai Redis Hash: field `current_zone` dan `entered_at`
+    - TTL 2 jam per key
+    - _Requirements: 9.8_
+  - [x] 18.3 Implementasi `AlertCooldownManager` menggunakan Redis
+    - Simpan flag cooldown `alert_cooldown:{user_id}:{type}` dengan TTL: CRITICAL = 60 detik, WARNING = 120 detik
+    - _Requirements: 9.7_
+
+- [x] 19. Implementasi AnomalyChecker (ML Service)
+  - [x] 19.1 Implementasi `AnomalyChecker` di `routers/anomaly.py`
+    - Endpoint `POST /ml/anomaly-check` menerima `AnomalyCheckRequest`
+    - Evaluasi kondisi CRITICAL: HR > 95% Max_HR → publish alert ke MQTT `fitsense/{club_id}/{user_id}/alerts`
+    - Evaluasi kondisi WARNING durasi: HR > 85% Max_HR dan durasi di zona > 10 menit → publish alert WARNING
+    - Evaluasi kondisi WARNING sensor: HR < 40 bpm → publish alert WARNING
+    - Cek `AlertCooldownManager` sebelum publish — lewati jika masih dalam cooldown
+    - Set cooldown di Redis setelah berhasil publish
+    - Selesaikan evaluasi dalam < 500ms
+    - Jika MQTT Broker tidak dapat dijangkau, log ERROR dengan detail alert yang gagal dikirim
+    - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7_
+  - [x] 19.2 Tulis unit test untuk AnomalyChecker
+    - HR > 95% Max_HR → alert CRITICAL diterbitkan
+    - HR < 40 bpm → alert WARNING diterbitkan
+    - Alert dalam cooldown → dilewati tanpa error
+    - _Requirements: 9.2, 9.4, 9.7_
+  - [x] 19.3 Tulis property test untuk deteksi anomali CRITICAL (Property 9)
+    - **Property 9: Deteksi Anomali CRITICAL**
+    - **Validates: Requirements 9.2, 9.7**
+  - [x] 19.4 Tulis property test untuk deteksi anomali WARNING durasi zona (Property 10)
+    - **Property 10: Deteksi Anomali WARNING — Durasi Zona**
+    - **Validates: Requirements 9.3, 9.7**
+  - [x] 19.5 Tulis property test untuk alert cooldown idempotency (Property 11)
+    - **Property 11: Alert Cooldown — Idempotency**
+    - **Validates: Requirements 9.7**
+
+- [x] 20. Implementasi SessionAnalyzer dan RecommendationService (ML Service)
+  - [x] 20.1 Implementasi `SessionAnalyzer` di `routers/recommendation.py`
+    - Endpoint `POST /ml/analyze-session` menerima `AnalyzeSessionRequest`
+    - Ambil 5 sesi terakhir member dari PostgreSQL dan InfluxDB
+    - Logika rekomendasi:
+      - Rata-rata HR 3 sesi terakhir selalu di zona `peak` → rekomendasi penurunan intensitas
+      - Rata-rata HR menurun dibanding 2 minggu lalu → rekomendasi peningkatan intensitas
+      - Durasi di zona `fat_burn` < 20 menit per sesi → rekomendasi perpanjangan sesi fat burn
+    - Simpan hasil ke tabel `ml_recommendations` di PostgreSQL
+    - Jika data < 1 sesi historis, log INFO dan tidak simpan rekomendasi kosong
+    - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.8_
+  - [x] 20.2 Implementasi `RecommendationService` di API Server untuk proxy dan query rekomendasi
+    - Endpoint `GET /api/clubs/:clubId/members/:userId/recommendations`
+    - Endpoint `GET /api/clubs/:clubId/members/:userId/recommendations/latest`
+    - _Requirements: 12.6, 12.7_
+  - [x] 20.3 Tulis unit test untuk SessionAnalyzer
+    - Data < 1 sesi historis → tidak simpan rekomendasi, log INFO
+    - _Requirements: 12.8_
+  - [x] 20.4 Tulis property test untuk konsistensi logika rekomendasi ML (Property 15)
+    - **Property 15: Rekomendasi ML — Konsistensi Logika**
+    - **Validates: Requirements 12.2, 12.3, 12.4**
+
+- [x] 21. Implementasi health check dan downsampling ML Service
+  - [x] 21.1 Implementasi endpoint `GET /ml/health`
+    - Kembalikan status kesehatan layanan beserta status koneksi PostgreSQL dan InfluxDB
+    - Kembalikan status `degraded` jika salah satu koneksi gagal dengan detail komponen yang bermasalah
+    - _Requirements: 16.1, 16.2_
+  - [x] 21.2 Implementasi task downsampling harian menggunakan `APScheduler`
+    - Jadwal: setiap hari pukul 02.00 UTC
+    - Agregasi data HR raw menjadi rata-rata per menit untuk data berusia > 90 hari menggunakan Flux `aggregateWindow`
+    - Simpan hasil ke bucket `heartrate_aggregated`
+    - Log hasil downsampling: jumlah data point yang diproses dan durasi eksekusi
+    - _Requirements: 20.3, 20.4_
+
+- [x] 22. Checkpoint — Pastikan semua test ML Service lulus
+  - Pastikan semua unit test dan property test ML Service lulus
+  - Tanyakan kepada user jika ada pertanyaan sebelum melanjutkan
+
+- [x] 23. Implementasi Web Dashboard — Autentikasi (Next.js 14)
+  - [x] 23.1 Setup project `apps/web` dengan Next.js 14 App Router, TypeScript, dan dependency
+    - Install: `mqtt`, `react-window`, `@tanstack/react-query`, `react-hook-form`, `zod`
+    - Buat struktur direktori: `app/(auth)/login`, `app/(auth)/register`, `app/(auth)/forgot-password`, `app/(auth)/reset-password`, `app/dashboard/trainer`, `app/dashboard/member`, `app/dashboard/admin`
+    - _Requirements: 13.1, 14.1_
+  - [x] 23.2 Implementasi halaman login `app/(auth)/login`
+    - Form email + password, panggil `POST /api/auth/login`
+    - Simpan JWT dan MQTT_Token di memory / httpOnly cookie
+    - Redirect ke dashboard sesuai role setelah login berhasil
+    - _Requirements: 2.1_
+  - [x] 23.3 Implementasi halaman registrasi mandiri `app/(auth)/register`
+    - Form nama, email, password, dan kode undangan
+    - Panggil `POST /api/auth/register-member`
+    - Tampilkan error yang sesuai: kode expired (HTTP 410), email duplikat (HTTP 409)
+    - _Requirements: 18.2, 18.3, 18.4_
+  - [x] 23.4 Implementasi halaman forgot password `app/(auth)/forgot-password`
+    - Form email, panggil `POST /api/auth/forgot-password`
+    - Selalu tampilkan pesan sukses generik (tidak bocorkan apakah email terdaftar)
+    - _Requirements: 19.1, 19.2_
+  - [x] 23.5 Implementasi halaman reset password `app/(auth)/reset-password`
+    - Baca token dari query parameter URL
+    - Form password baru, panggil `POST /api/auth/reset-password`
+    - Tampilkan error jika token tidak valid atau expired (HTTP 410)
+    - _Requirements: 19.3, 19.4_
+
+- [x] 24. Implementasi Web Dashboard — Real-Time dan Monitoring
+  - [x] 24.1 Implementasi hook `useMqtt` di `hooks/useMqtt.ts`
+    - Manajemen koneksi MQTT via WebSocket ke EMQX WSS `:8084`
+    - Auto-reconnect dengan exponential backoff: `Math.min(1000 * 2 ** attempt, 60000)` (maks 60 detik)
+    - Auto-refresh MQTT_Token jika tersisa < 5 menit tanpa memutus koneksi aktif
+    - Expose status koneksi: `connected` | `disconnected` | `reconnecting`
+    - _Requirements: 13.1, 13.5, 13.6, 13.7_
+  - [x] 24.2 Implementasi komponen `HRMonitor` untuk tampilan HR real-time per member
+    - Update tampilan dalam < 1 detik saat data HR baru diterima via MQTT
+    - Tampilkan nilai HR, zona HR, dan badge warna zona
+    - _Requirements: 13.3_
+  - [x] 24.3 Implementasi komponen `AlertBanner` untuk notifikasi anomali
+    - Subscribe ke topik `fitsense/{club_id}/+/alerts`
+    - Tampilkan notifikasi menonjol (warna merah untuk CRITICAL, kuning untuk WARNING) saat peringatan diterima
+    - _Requirements: 13.4_
+  - [x] 24.4 Implementasi komponen `MemberList` dengan virtualized list menggunakan `react-window`
+    - Hanya render elemen yang terlihat di viewport (maks 100 member aktif di DOM)
+    - Tampilkan indikator jumlah member tidak terlihat jika total > 100
+    - _Requirements: 13.8, 13.9_
+  - [x] 24.5 Implementasi komponen `MemberSearch` untuk pencarian member berdasarkan nama
+    - Filter daftar member secara lokal tanpa request tambahan ke server
+    - _Requirements: 13.9_
+  - [x] 24.6 Implementasi komponen `ConnectionStatus` untuk status koneksi MQTT
+    - Tampilkan indikator visual: terhubung (hijau) / terputus (merah) / menyambung kembali (kuning)
+    - _Requirements: 13.7_
+  - [x] 24.7 Implementasi halaman dashboard trainer `app/dashboard/trainer`
+    - Subscribe `fitsense/{club_id}/#` setelah terhubung ke MQTT
+    - Tampilkan `MemberList` dengan `HRMonitor` per member
+    - Tampilkan `AlertBanner` dan `ConnectionStatus`
+    - _Requirements: 13.2, 13.3, 13.4_
+  - [x] 24.8 Implementasi halaman dashboard member `app/dashboard/member`
+    - Subscribe `fitsense/{club_id}/{user_id}/hr` dan `fitsense/{club_id}/{user_id}/alerts` miliknya sendiri
+    - Tampilkan nilai HR terkini, zona HR, durasi sesi berjalan
+    - Update tampilan dalam < 1 detik saat data baru diterima
+    - _Requirements: 14.1, 14.2, 14.4_
+  - [x] 24.9 Implementasi halaman admin `app/dashboard/admin` (super_admin)
+    - Tampilkan daftar semua club dengan status
+    - Tampilkan storage stats dari `GET /api/admin/storage/stats`
+    - _Requirements: 1.4, 20.5_
+
+- [x] 25. Implementasi Mobile App (React Native)
+  - [x] 25.1 Setup project `apps/mobile` dengan React Native dan dependency
+    - Install: `react-native-ble-plx`, `mqtt` (atau `@mqtt-client/react-native`), `@react-native-async-storage/async-storage`, `react-hook-form`, `zod`
+    - Buat struktur direktori: `src/ble`, `src/mqtt`, `src/screens`, `src/services`
+    - _Requirements: 5.1, 5.2_
+  - [x] 25.2 Implementasi halaman login Mobile App `src/screens/LoginScreen`
+    - Form email + password, panggil `POST /api/auth/login`
+    - Simpan JWT dan MQTT_Token di AsyncStorage
+    - Navigasi ke HomeScreen setelah login berhasil
+    - _Requirements: 2.1_
+  - [x] 25.3 Implementasi `BLEManager` di `src/ble/`
+    - Scan dan deteksi sensor HR Coospo yang terdaftar dalam jangkauan Bluetooth
+    - Koneksi BLE otomatis saat sensor terdeteksi
+    - Reconnect otomatis dengan exponential backoff jika koneksi terputus (maks 30 detik)
+    - _Requirements: 5.1, 5.4_
+  - [x] 25.4 Implementasi `MqttPublisher` di `src/mqtt/`
+    - Publish data HR ke topik `fitsense/{club_id}/{user_id}/hr` dengan payload: `hr`, `rr`, `session_id`, `timestamp`
+    - Interval publish maksimal 1 detik per data point
+    - Gunakan MQTT_Token (bukan JWT) untuk autentikasi ke MQTT Broker port `:8883`
+    - Auto-refresh MQTT_Token via `POST /api/auth/mqtt-token` jika tersisa < 5 menit tanpa interaksi pengguna
+    - _Requirements: 5.2, 5.3, 5.5, 5.6, 5.7_
+  - [x] 25.5 Implementasi `SessionManager` di `src/services/`
+    - Start sesi: panggil `POST /api/sessions/start`, simpan `session_id` di AsyncStorage
+    - End sesi: panggil `POST /api/sessions/end`
+    - _Requirements: 10.1, 10.3_
+  - [x] 25.6 Implementasi `HRDisplay` di `src/screens/SessionScreen`
+    - Tampilkan nilai HR terkini, zona HR, dan durasi sesi berjalan
+    - Update dalam < 1 detik saat data baru diterima
+    - Subscribe ke topik `fitsense/{club_id}/{user_id}/alerts` untuk menerima peringatan
+    - Tampilkan notifikasi peringatan dengan haptic feedback dan suara saat alert diterima
+    - _Requirements: 14.1, 14.2, 14.3, 14.4_
+
+- [x] 26. Integrasi penuh dan wiring semua komponen
+  - [x] 26.1 Verifikasi alur data end-to-end: Mobile App → EMQX → MqttConsumer → BatchWriter → InfluxDB
+    - Tulis integration test yang mensimulasikan alur lengkap menggunakan `docker-compose.test.yml`
+    - _Requirements: 7.1, 7.2, 7.3_
+  - [x] 26.2 Verifikasi alur anomali: MqttConsumer → ML Service → EMQX → Web Dashboard / Mobile App
+    - Tulis integration test untuk alur alert CRITICAL dan WARNING
+    - _Requirements: 9.2, 9.3, 13.4, 14.3_
+  - [x] 26.3 Tulis integration test untuk alur autentikasi MQTT end-to-end
+    - Koneksi dengan MQTT_Token valid → diterima
+    - Koneksi dengan token tidak valid → ditolak
+    - Publish ke topik yang tidak diizinkan → ditolak
+    - _Requirements: 6.1, 6.2, 6.3_
+  - [x] 26.4 Tulis integration test untuk isolasi data multi-tenant
+    - Pengguna club A tidak dapat mengakses data club B via REST API
+    - Pengguna club A tidak dapat subscribe topik club B via MQTT
+    - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5_
+
+- [x] 27. Checkpoint akhir — Pastikan semua test lulus
+  - Pastikan semua unit test, property test, dan integration test lulus
+  - Tanyakan kepada user jika ada pertanyaan sebelum selesai
+
+## Catatan
+
+- Task bertanda `*` bersifat opsional dan dapat dilewati untuk MVP yang lebih cepat
+- Setiap task mereferensikan persyaratan spesifik untuk keterlacakan
+- Checkpoint di task 11, 17, 22, 27 memastikan validasi inkremental di setiap fase
+- Property tests memvalidasi properti kebenaran universal (20 properties)
+- Unit tests memvalidasi contoh spesifik dan edge case
+- Semua integration test menggunakan instance nyata via `docker-compose.test.yml` (tanpa mock database)
+- Tag komentar property test: `// Feature: fitsense-platform, Property {N}: {deskripsi}`
+- Script `scripts/test-setup.sh` harus dijalankan sebelum test suite dan `docker compose down -v` setelahnya
+- `nodemailer` wajib dikonfigurasi dengan SMTP credentials via environment variable sebelum `PasswordResetService` dapat mengirim email
+- EMQX credentials untuk ML_Service (`ML_MQTT_USERNAME`, `ML_MQTT_PASSWORD`) harus didefinisikan di `.env` dan dikonfigurasi di `emqx/emqx.conf`
