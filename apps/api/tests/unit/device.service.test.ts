@@ -30,12 +30,12 @@ beforeEach(() => {
 // ─── validateDeviceType ───────────────────────────────────────────────────────
 
 describe("DeviceService.validateDeviceType", () => {
-  it("should return true for coospo_h6", () => {
-    expect(DeviceService.validateDeviceType("coospo_h6")).toBe(true);
-  });
-
   it("should return true for coospo_hw706", () => {
     expect(DeviceService.validateDeviceType("coospo_hw706")).toBe(true);
+  });
+
+  it("should return false for coospo_h6 (no longer supported)", () => {
+    expect(DeviceService.validateDeviceType("coospo_h6")).toBe(false);
   });
 
   it("should return false for unknown device type", () => {
@@ -57,8 +57,8 @@ describe("DeviceService.registerDevice", () => {
     );
 
     await expect(
-      DeviceService.registerDevice("user-1", "club-1", {
-        device_type: "coospo_h6",
+      DeviceService.registerDevice("user-1", "company-1", {
+        device_type: "coospo_hw706",
         mac_address: "AA:BB:CC:DD:EE:FF",
       }),
     ).rejects.toMatchObject({ statusCode: 409, code: "MAC_CONFLICT" });
@@ -68,7 +68,7 @@ describe("DeviceService.registerDevice", () => {
     mockGetPool.mockReturnValue(makeMockPool([]));
 
     await expect(
-      DeviceService.registerDevice("user-1", "club-1", {
+      DeviceService.registerDevice("user-1", "company-1", {
         device_type: "unsupported_device",
         mac_address: "AA:BB:CC:DD:EE:FF",
       }),
@@ -82,25 +82,26 @@ describe("DeviceService.registerDevice", () => {
     const newDevice = {
       id: "device-new",
       user_id: "user-1",
-      club_id: "club-1",
-      device_type: "coospo_h6",
+      company_id: "company-1",
+      device_type: "coospo_hw706",
       mac_address: "AA:BB:CC:DD:EE:FF",
       registered_at: new Date(),
     };
 
     mockGetPool.mockReturnValue(
       makeMockPool([
-        { rows: [] }, // MAC uniqueness check: no conflict
+        { rows: [] }, // Check MAC for this user: no conflict
+        { rows: [] }, // Check MAC in company devices: no conflict
         { rows: [newDevice] }, // INSERT result
       ]),
     );
 
-    const result = await DeviceService.registerDevice("user-1", "club-1", {
-      device_type: "coospo_h6",
+    const result = await DeviceService.registerDevice("user-1", "company-1", {
+      device_type: "coospo_hw706",
       mac_address: "AA:BB:CC:DD:EE:FF",
     });
 
-    expect(result.device_type).toBe("coospo_h6");
+    expect(result.device_type).toBe("coospo_hw706");
     expect(result.mac_address).toBe("AA:BB:CC:DD:EE:FF");
   });
 
@@ -108,7 +109,7 @@ describe("DeviceService.registerDevice", () => {
     const newDevice = {
       id: "device-new",
       user_id: "user-2",
-      club_id: "club-1",
+      company_id: "company-1",
       device_type: "coospo_hw706",
       mac_address: "AA:BB:CC:DD:EE:FF",
       registered_at: new Date(),
@@ -117,12 +118,13 @@ describe("DeviceService.registerDevice", () => {
     // MAC check for user-2 returns no conflict (different user)
     mockGetPool.mockReturnValue(
       makeMockPool([
-        { rows: [] }, // MAC uniqueness check: no conflict for this user
+        { rows: [] }, // Check MAC for this user: no conflict
+        { rows: [] }, // Check MAC in company devices: no conflict
         { rows: [newDevice] }, // INSERT result
       ]),
     );
 
-    const result = await DeviceService.registerDevice("user-2", "club-1", {
+    const result = await DeviceService.registerDevice("user-2", "company-1", {
       device_type: "coospo_hw706",
       mac_address: "AA:BB:CC:DD:EE:FF",
     });
@@ -139,15 +141,15 @@ describe("DeviceService.listDevices", () => {
       {
         id: "d1",
         user_id: "user-1",
-        club_id: "club-1",
-        device_type: "coospo_h6",
+        company_id: "company-1",
+        device_type: "coospo_hw706",
         mac_address: "AA:BB:CC:DD:EE:01",
         registered_at: new Date(),
       },
       {
         id: "d2",
         user_id: "user-1",
-        club_id: "club-1",
+        company_id: "company-1",
         device_type: "coospo_hw706",
         mac_address: "AA:BB:CC:DD:EE:02",
         registered_at: new Date(),

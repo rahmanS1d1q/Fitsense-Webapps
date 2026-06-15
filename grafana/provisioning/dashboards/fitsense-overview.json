@@ -1,51 +1,111 @@
 {
-  "title": "FitSense Overview",
-  "uid": "fitsense-overview",
-  "version": 1,
-  "schemaVersion": 38,
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
   "panels": [
     {
-      "id": 1,
-      "title": "HR per Club (last 1h)",
+      "title": "HR Real-time per Company",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": "InfluxDB",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
       "targets": [
         {
-          "query": "from(bucket: \"heartrate\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"hr_data\")\n  |> filter(fn: (r) => r[\"_field\"] == \"hr\")\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)\n  |> group(columns: [\"club_id\"])",
+          "query": "from(bucket: \"heartrate\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"hr_data\")\n  |> filter(fn: (r) => r[\"_field\"] == \"hr\")\n  |> aggregateWindow(every: 10s, fn: mean, createEmpty: false)\n  |> group(columns: [\"company_id\"])",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bpm", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "title": "Session Aktif",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS \"Active Sessions\" FROM sessions WHERE ended_at IS NULL;",
+          "refId": "A",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 100 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Total Member per Company",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT c.name AS company, COUNT(uc.id) AS members FROM users_companies uc JOIN companies c ON c.id = uc.company_id WHERE uc.role = 'member' GROUP BY c.name ORDER BY members DESC LIMIT 20;",
+          "refId": "A",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "title": "Alert History",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "targets": [
+        {
+          "query": "from(bucket: \"heartrate\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"alerts\")\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 50)",
           "refId": "A"
         }
       ]
     },
     {
-      "id": 2,
-      "title": "Active Members",
-      "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
-      "datasource": "PostgreSQL",
+      "title": "Storage Usage",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 12 },
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
       "targets": [
         {
-          "rawSql": "SELECT COUNT(*) as active_members FROM users WHERE status = 'active' AND role = 'member'",
-          "refId": "A",
-          "format": "table"
+          "query": "buckets()\n  |> filter(fn: (r) => r.name == \"heartrate\" or r.name == \"heartrate_aggregated\")\n  |> limit(n: 2)",
+          "refId": "A"
         }
-      ]
-    },
-    {
-      "id": 3,
-      "title": "Active Clubs",
-      "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
-      "datasource": "PostgreSQL",
-      "targets": [
-        {
-          "rawSql": "SELECT COUNT(*) as active_clubs FROM clubs WHERE status = 'active'",
-          "refId": "A",
-          "format": "table"
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 500000000 },
+              { "color": "red", "value": 1000000000 }
+            ]
+          }
         }
-      ]
+      }
     }
   ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["fitsense"],
+  "templating": { "list": [] },
   "time": { "from": "now-1h", "to": "now" },
-  "refresh": "10s"
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "FitSense Overview",
+  "uid": "fitsense-overview",
+  "version": 1,
+  "weekStart": ""
 }

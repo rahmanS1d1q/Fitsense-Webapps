@@ -30,7 +30,7 @@ export interface CreateInviteResult {
  * Requirements: 18.1
  */
 export async function generateInvite(
-  clubId: string,
+  companyId: string,
   createdBy: string,
 ): Promise<CreateInviteResult> {
   const pool = getPool();
@@ -38,9 +38,9 @@ export async function generateInvite(
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
   await pool.query(
-    `INSERT INTO invite_codes (club_id, code, created_by, expires_at)
+    `INSERT INTO invite_codes (company_id, code, created_by, expires_at)
      VALUES ($1, $2, $3, $4)`,
-    [clubId, code, createdBy, expiresAt],
+    [companyId, code, createdBy, expiresAt],
   );
 
   const domain = process.env.APP_DOMAIN || "localhost:3000";
@@ -53,7 +53,9 @@ export async function generateInvite(
 
 export interface RegisterMemberInput {
   code: string;
-  name: string;
+  firstName: string;
+  lastName?: string;
+  name?: string; // backward compat
   email: string;
   password: string;
   age?: number;
@@ -62,10 +64,11 @@ export interface RegisterMemberInput {
 export interface RegisterMemberResult {
   user: {
     id: string;
-    name: string;
+    firstName: string;
+    lastName: string;
     email: string;
     role: string;
-    clubId: string;
+    companyId: string;
   };
 }
 
@@ -84,7 +87,7 @@ export async function validateAndUseInvite(
 
     // 1. Look up invite code
     const inviteResult = await client.query(
-      `SELECT id, club_id, expires_at, used_at
+      `SELECT id, company_id, expires_at, used_at
        FROM invite_codes
        WHERE code = $1
        FOR UPDATE`,
@@ -154,15 +157,21 @@ export async function validateAndUseInvite(
       );
     }
 
-    // 6. Create member
+    // 6. Create member — role stored in users table (NOT NULL in schema)
     const passwordHash = await bcrypt.hash(input.password, 10);
+    const firstName =
+      input.firstName ?? (input.name ? input.name.split(" ")[0] : "");
+    const lastName =
+      input.lastName ??
+      (input.name ? input.name.split(" ").slice(1).join(" ") : "");
+
     const userResult = await client.query(
-      `INSERT INTO users (club_id, name, email, password_hash, role, age)
-       VALUES ($1, $2, $3, $4, 'member', $5)
-       RETURNING id, name, email, role, club_id`,
+      `INSERT INTO users (first_name, last_name, email, password_hash, age, role, status)
+       VALUES ($1, $2, $3, $4, $5, 'member', 'active')
+       RETURNING id, first_name, last_name, email`,
       [
-        invite.club_id,
-        input.name,
+        firstName,
+        lastName || firstName,
         input.email,
         passwordHash,
         input.age ?? null,
@@ -170,11 +179,15 @@ export async function validateAndUseInvite(
     );
     const user = userResult.rows[0];
 
+    // Link to company via users_companies
+    await client.query(
+      "INSERT INTO users_companies (user_id, company_id, role) VALUES ($1, $2, 'member')",
+      [user.id, invite.company_id],
+    );
+
     // 7. Mark invite as used
     await client.query(
-      `UPDATE invite_codes
-       SET used_by = $1, used_at = NOW()
-       WHERE id = $2`,
+      `UPDATE invite_codes SET used_by = $1, used_at = NOW() WHERE id = $2`,
       [user.id, invite.id],
     );
 
@@ -183,10 +196,11 @@ export async function validateAndUseInvite(
     return {
       user: {
         id: user.id,
-        name: user.name,
+        firstName: user.first_name,
+        lastName: user.last_name ?? "",
         email: user.email,
-        role: user.role,
-        clubId: user.club_id,
+        role: "member",
+        companyId: invite.company_id,
       },
     };
   } catch (err) {

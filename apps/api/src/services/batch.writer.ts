@@ -32,11 +32,11 @@ function getWriteApi(): WriteApi {
 
 /**
  * Adds a data point to the Redis buffer.
- * Key: hr_buffer:{club_id}:{user_id}
+ * Key: hr_buffer:{company_id}:{user_id}
  */
 export async function addToBuffer(point: HRDataPoint): Promise<void> {
   const redis = getRedis();
-  const key = `hr_buffer:${point.clubId}:${point.userId}`;
+  const key = `hr_buffer:${point.companyId}:${point.userId}`;
   await redis.rpush(key, JSON.stringify(point));
 }
 
@@ -80,7 +80,7 @@ async function flush(): Promise<void> {
     for (const { points } of pointsToWrite) {
       for (const p of points) {
         const influxPoint = new Point("hr_data")
-          .tag("club_id", p.clubId)
+          .tag("company_id", p.companyId)
           .tag("user_id", p.userId)
           .tag("session_id", p.sessionId)
           .intField("hr", p.hr)
@@ -145,3 +145,4 @@ export function stopBatchWriter(): void {
     flushTimer = null;
   }
 }
+

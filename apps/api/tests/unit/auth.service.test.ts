@@ -23,9 +23,17 @@ const mockBcryptCompare = bcrypt.compare as jest.MockedFunction<
 >;
 const mockUuidv4 = uuidv4 as jest.MockedFunction<typeof uuidv4>;
 
-function makeMockPool(rows: Record<string, unknown>[] = []) {
+function makeMockPool(
+  rows: Record<string, unknown>[] = [],
+  secondRows?: Record<string, unknown>[],
+) {
+  let callCount = 0;
   return {
-    query: jest.fn().mockResolvedValue({ rows }),
+    query: jest.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ rows });
+      return Promise.resolve({ rows: secondRows ?? rows });
+    }),
     connect: jest.fn(),
   } as unknown as ReturnType<typeof getPool>;
 }
@@ -60,34 +68,35 @@ describe("AuthService.login", () => {
   it("should throw HTTP 401 when password is wrong", async () => {
     const fakeUser = {
       id: "user-uuid",
-      name: "Test User",
+      first_name: "Test",
+      last_name: "User",
       email: "test@example.com",
       password_hash: "$2b$10$hashedpassword",
-      role: "member",
-      club_id: "club-uuid",
+      users_role: "member",
+      status: "active",
     };
     mockGetPool.mockReturnValue(makeMockPool([fakeUser]));
     mockGetRedis.mockReturnValue(makeMockRedis());
-    // Password comparison fails
     mockBcryptCompare.mockResolvedValue(false as never);
 
     await expect(
       AuthService.login("test@example.com", "wrongpassword"),
-    ).rejects.toMatchObject({
-      statusCode: 401,
-    });
+    ).rejects.toMatchObject({ statusCode: 401 });
   });
 
   it("should return jwt, mqttToken, refreshToken on successful login", async () => {
     const fakeUser = {
       id: "user-uuid",
-      name: "Test User",
+      first_name: "Test",
+      last_name: "User",
       email: "test@example.com",
       password_hash: "$2b$10$hashedpassword",
-      role: "member",
-      club_id: "club-uuid",
+      users_role: "member",
+      status: "active",
     };
-    mockGetPool.mockReturnValue(makeMockPool([fakeUser]));
+    const fakeUc = { role: "member", company_id: "company-uuid" };
+    // First query returns user, second returns users_companies row
+    mockGetPool.mockReturnValue(makeMockPool([fakeUser], [fakeUc]));
     const mockRedis = makeMockRedis();
     mockGetRedis.mockReturnValue(mockRedis);
     mockBcryptCompare.mockResolvedValue(true as never);
@@ -136,8 +145,13 @@ describe("AuthService.refresh", () => {
     mockUuidv4.mockReturnValue("new-refresh-token" as never);
     mockGetRedis.mockReturnValue(mockRedis);
 
-    const fakeUser = { id: "user-uuid", club_id: "club-uuid", role: "member" };
-    mockGetPool.mockReturnValue(makeMockPool([fakeUser]));
+    const fakeUser = {
+      id: "user-uuid",
+      users_role: "member",
+      status: "active",
+    };
+    const fakeUc = { role: "member", company_id: "company-uuid" };
+    mockGetPool.mockReturnValue(makeMockPool([fakeUser], [fakeUc]));
 
     const result = await AuthService.refresh(
       "user-uuid",

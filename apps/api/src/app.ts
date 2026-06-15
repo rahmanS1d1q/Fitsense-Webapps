@@ -3,28 +3,44 @@ import cors from "cors";
 import helmet from "helmet";
 import authRouter from "./routes/auth.routes";
 import clubsRouter from "./routes/clubs.routes";
+import companiesRouter from "./routes/companies.routes";
 import membersRouter from "./routes/members.routes";
 import mqttWebhookRouter from "./routes/mqtt-webhook.routes";
 import sessionsRouter from "./routes/sessions.routes";
 import hrRouter from "./routes/hr.routes";
 import inviteRouter from "./routes/invite.routes";
 import adminRouter from "./routes/admin.routes";
+import workoutsRouter from "./routes/workouts.routes";
+import workoutAssignmentsRouter from "./routes/workout-assignments";
+import assetsRouter from "./routes/assets.routes";
+import devicesRouter from "./routes/devices.routes";
 
 const app: Application = express();
 
 // Security middleware
 app.use(helmet());
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Auth routes
 app.use("/api/auth", authRouter);
 
-// Club management routes (super_admin only)
+// Club management routes (super_admin only) — backward compat
 app.use("/api/clubs", clubsRouter);
 
-// Member and device routes
+// Company management routes (super_admin only)
+app.use("/api/companies", companiesRouter);
+
+// Member and device routes (support both /companies and /clubs)
+app.use("/api/companies", membersRouter);
 app.use("/api/clubs", membersRouter);
 
 // MQTT webhook routes (EMQX auth & ACL)
@@ -32,16 +48,34 @@ app.use("/api/mqtt", mqttWebhookRouter);
 
 // Session routes
 app.use("/api/sessions", sessionsRouter);
+app.use("/api/companies", sessionsRouter);
 app.use("/api/clubs", sessionsRouter);
 
 // HR history routes
+app.use("/api/companies", hrRouter);
 app.use("/api/clubs", hrRouter);
 
-// Invite routes (club_owner / trainer generate invite codes)
+// Invite routes
+app.use("/api/companies", inviteRouter);
 app.use("/api/clubs", inviteRouter);
 
 // Admin + health check routes
 app.use("/api", adminRouter);
+
+// Workout routes
+app.use("/api/companies", workoutsRouter);
+
+// Workout assignment routes
+app.use("/api/companies", workoutAssignmentsRouter);
+
+// Asset routes + static file serving
+app.use("/api/companies", assetsRouter);
+
+// Device routes
+app.use("/api/companies", devicesRouter);
+
+import path from "path";
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // 404 handler
 app.use((_req: Request, res: Response) => {

@@ -40,7 +40,7 @@ describe("Property 2: RBAC — Akses Endpoint Club", () => {
       fc.property(
         fc.record({
           userId: fc.uuid(),
-          clubId: fc.uuid(),
+          companyId: fc.uuid(),
           role: fc.constantFrom<Role>("club_owner", "trainer", "member"),
           exp: fc.integer({ min: 1, max: 9999999999 }),
         }),
@@ -69,7 +69,7 @@ describe("Property 2: RBAC — Akses Endpoint Club", () => {
       fc.property(
         fc.record({
           userId: fc.uuid(),
-          clubId: fc.constant(null),
+          companyId: fc.constant(null),
           role: fc.constant<Role>("super_admin"),
           exp: fc.integer({ min: 1, max: 9999999999 }),
         }),
@@ -88,14 +88,14 @@ describe("Property 2: RBAC — Akses Endpoint Club", () => {
     );
   });
 
-  it("403 response must not depend on userId or clubId — only on role", () => {
+  it("403 response must not depend on userId or companyId — only on role", () => {
     fc.assert(
       fc.property(
         fc.uuid(),
         fc.uuid(),
         fc.constantFrom<Role>("club_owner", "trainer", "member"),
-        (userId, clubId, role) => {
-          const user: JwtPayload = { userId, clubId, role, exp: 9999999999 };
+        (userId, companyId, role) => {
+          const user: JwtPayload = { userId, companyId, role, exp: 9999999999 };
           const req = makeReq(user);
           const res = makeRes();
           const next = makeNext();
@@ -110,3 +110,4 @@ describe("Property 2: RBAC — Akses Endpoint Club", () => {
     );
   });
 });
+

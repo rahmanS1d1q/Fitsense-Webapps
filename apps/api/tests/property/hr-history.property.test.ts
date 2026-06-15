@@ -99,15 +99,17 @@ describe("Property 14: HR History — Round-Trip Query", () => {
     );
   });
 
-  it("tenant isolation: club_id dan user_id selalu disertakan dalam query", () => {
+  it("tenant isolation: company_id dan user_id selalu disertakan dalam query", () => {
     fc.assert(
-      fc.property(fc.uuid(), fc.uuid(), (clubId, userId) => {
+      fc.property(fc.uuid(), fc.uuid(), (companyId, userId) => {
         // Verify that the Flux query template always includes both filters
         const fluxTemplate = `
-          filter(fn: (r) => r["club_id"] == "${clubId}")
+          filter(fn: (r) => r["company_id"] == "${companyId}")
           filter(fn: (r) => r["user_id"] == "${userId}")
         `;
-        return fluxTemplate.includes(clubId) && fluxTemplate.includes(userId);
+        return (
+          fluxTemplate.includes(companyId) && fluxTemplate.includes(userId)
+        );
       }),
       { numRuns: 100 },
     );

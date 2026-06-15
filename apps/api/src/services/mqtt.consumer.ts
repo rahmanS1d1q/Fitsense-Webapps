@@ -6,14 +6,17 @@
 import mqtt from "mqtt";
 import { config } from "../config";
 import { getRedis } from "../db/redis";
+import { getPool } from "../db/client";
 import { classifyZone, HRZone } from "./hr-zone.service";
 import { addToBuffer } from "./batch.writer";
+import { resolveDeviceByMac } from "./device.service";
 
 export interface RawHRPayload {
   hr: number;
   rr?: number;
   session_id: string;
   timestamp: number;
+  mac_address?: string; // optional — sent by mobile app
 }
 
 export interface HRDataPoint {
@@ -21,7 +24,7 @@ export interface HRDataPoint {
   rr?: number;
   sessionId: string;
   timestamp: number;
-  clubId: string;
+  companyId: string;
   userId: string;
   hrZone: HRZone;
 }
@@ -57,17 +60,68 @@ export function validateHRPayload(raw: unknown): RawHRPayload | null {
     rr: obj.rr as number | undefined,
     session_id: obj.session_id,
     timestamp: obj.timestamp,
+    mac_address:
+      typeof obj.mac_address === "string" ? obj.mac_address : undefined,
   };
 }
 
 /**
- * Parses clubId and userId from topic: fitsense/{club_id}/{user_id}/hr
+ * Parses companyId and userId from topic: fitsense/{company_id}/{user_id}/hr
  */
-function parseTopic(topic: string): { clubId: string; userId: string } | null {
+function parseTopic(
+  topic: string,
+): { companyId: string; userId: string } | null {
   const parts = topic.split("/");
   if (parts.length !== 4 || parts[0] !== "fitsense" || parts[3] !== "hr")
     return null;
-  return { clubId: parts[1], userId: parts[2] };
+  return { companyId: parts[1], userId: parts[2] };
+}
+
+/**
+ * Auto-assign device to session based on MAC address in the HR payload.
+ * Called only when mac_address is present in the payload.
+ * Fires-and-forgets — never blocks HR data processing.
+ */
+async function autoAssignDevice(
+  macAddress: string,
+  userId: string,
+  companyId: string,
+  sessionId: string,
+): Promise<void> {
+  try {
+    const pool = getPool();
+
+    // Check if session already has a device assigned
+    const sessionCheck = await pool.query(
+      "SELECT device_id FROM sessions WHERE id = $1",
+      [sessionId],
+    );
+    if (sessionCheck.rows[0]?.device_id) return; // already assigned, skip
+
+    // Resolve device from MAC address
+    const device = await resolveDeviceByMac(macAddress, userId, companyId);
+    if (!device) return; // device not registered, skip
+
+    // Assign device to session
+    await pool.query("UPDATE sessions SET device_id = $1 WHERE id = $2", [
+      device.id,
+      sessionId,
+    ]);
+
+    // If company device, mark as 'borrowed'
+    if (device.owner_type === "company") {
+      await pool.query(
+        "UPDATE devices SET status = 'borrowed', updated_at = NOW() WHERE id = $1",
+        [device.id],
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[MqttConsumer] autoAssignDevice error:",
+      (err as Error).message,
+    );
+    // Never throw — HR data must still be processed
+  }
 }
 
 async function callMlAnomalyCheck(point: HRDataPoint): Promise<void> {
@@ -80,7 +134,7 @@ async function callMlAnomalyCheck(point: HRDataPoint): Promise<void> {
         rr: point.rr,
         session_id: point.sessionId,
         user_id: point.userId,
-        club_id: point.clubId,
+        company_id: point.companyId,
         timestamp: point.timestamp,
         hr_zone: point.hrZone,
       }),
@@ -125,7 +179,7 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
     return;
   }
 
-  const { clubId, userId } = parsed;
+  const { companyId, userId } = parsed;
 
   // Classify HR zone (age unknown at this layer — zone will be 'unknown' unless enriched)
   // The BatchWriter enriches with age from DB; here we use 'unknown' as default
@@ -136,7 +190,7 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
     rr: validated.rr,
     sessionId: validated.session_id,
     timestamp: validated.timestamp,
-    clubId,
+    companyId,
     userId,
     hrZone,
   };
@@ -160,8 +214,22 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
     await redis.expire(`zone_state:${userId}`, ZONE_STATE_TTL);
   }
 
-  // Distribute in parallel: BatchWriter + ML Service
-  await Promise.all([addToBuffer(point), callMlAnomalyCheck(point)]);
+  // Distribute in parallel: BatchWriter + ML Service + autoAssignDevice
+  const tasks: Promise<void>[] = [
+    addToBuffer(point),
+    callMlAnomalyCheck(point),
+  ];
+  if (validated.mac_address) {
+    tasks.push(
+      autoAssignDevice(
+        validated.mac_address,
+        userId,
+        companyId,
+        validated.session_id,
+      ),
+    );
+  }
+  await Promise.all(tasks);
 }
 
 export function startMqttConsumer(): void {

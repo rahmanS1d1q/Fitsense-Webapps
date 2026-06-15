@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 
 /**
- * Validates that the clubId in the URL path matches the club_id in the JWT.
+ * Validates that the companyId in the URL path matches the company_id in the JWT.
  * super_admin is exempt from this check.
- * Returns HTTP 403 if clubId does not match.
+ * Returns HTTP 403 if companyId does not match.
  * Requirements: 15.1, 15.3, 15.5
  */
 export function tenantMiddleware(
@@ -20,28 +20,26 @@ export function tenantMiddleware(
     return;
   }
 
-  // super_admin can access any club
+  // super_admin can access any company
   if (user.role === "super_admin") {
     next();
     return;
   }
 
-  const clubIdFromUrl = req.params.clubId;
+  const companyIdFromUrl = req.params.companyId;
 
-  if (!clubIdFromUrl) {
+  if (!companyIdFromUrl) {
     next();
     return;
   }
 
-  if (user.clubId !== clubIdFromUrl) {
-    res
-      .status(403)
-      .json({
-        error: {
-          code: "FORBIDDEN",
-          message: "Access to this club is not allowed",
-        },
-      });
+  if (user.companyId !== companyIdFromUrl) {
+    res.status(403).json({
+      error: {
+        code: "FORBIDDEN",
+        message: "Access to this company is not allowed",
+      },
+    });
     return;
   }
 

@@ -14,7 +14,7 @@ describe("HRQueryService.queryHRHistory", () => {
 
     await expect(
       queryHRHistory({
-        clubId: "club-1",
+        companyId: "company-1",
         userId: "user-1",
         from,
         to,
@@ -26,7 +26,7 @@ describe("HRQueryService.queryHRHistory", () => {
   it("query dengan format tanggal 'from' tidak valid → HTTP 400", async () => {
     await expect(
       queryHRHistory({
-        clubId: "club-1",
+        companyId: "company-1",
         userId: "user-1",
         from: "not-a-date",
         to: "2024-01-31T00:00:00Z",
@@ -38,7 +38,7 @@ describe("HRQueryService.queryHRHistory", () => {
   it("query dengan format tanggal 'to' tidak valid → HTTP 400", async () => {
     await expect(
       queryHRHistory({
-        clubId: "club-1",
+        companyId: "company-1",
         userId: "user-1",
         from: "2024-01-01T00:00:00Z",
         to: "invalid-date",
@@ -50,7 +50,7 @@ describe("HRQueryService.queryHRHistory", () => {
   it("interval tidak valid → HTTP 400", async () => {
     await expect(
       queryHRHistory({
-        clubId: "club-1",
+        companyId: "company-1",
         userId: "user-1",
         from: "2024-01-01T00:00:00Z",
         to: "2024-01-02T00:00:00Z",
@@ -62,7 +62,7 @@ describe("HRQueryService.queryHRHistory", () => {
   it("from >= to → HTTP 400", async () => {
     await expect(
       queryHRHistory({
-        clubId: "club-1",
+        companyId: "company-1",
         userId: "user-1",
         from: "2024-01-02T00:00:00Z",
         to: "2024-01-01T00:00:00Z",
@@ -71,3 +71,4 @@ describe("HRQueryService.queryHRHistory", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 });
+

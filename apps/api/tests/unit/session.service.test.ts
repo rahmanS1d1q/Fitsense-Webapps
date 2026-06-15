@@ -37,7 +37,7 @@ describe("SessionService.startSession", () => {
     );
 
     await expect(
-      SessionService.startSession("user-1", "club-1"),
+      SessionService.startSession("user-1", "company-1"),
     ).rejects.toMatchObject({
       statusCode: 409,
       code: "SESSION_CONFLICT",
@@ -48,7 +48,7 @@ describe("SessionService.startSession", () => {
     const newSession = {
       id: "new-session-id",
       user_id: "user-1",
-      club_id: "club-1",
+      company_id: "company-1",
       started_at: new Date(),
       ended_at: null,
       avg_hr: null,
@@ -67,7 +67,7 @@ describe("SessionService.startSession", () => {
       ]),
     );
 
-    const result = await SessionService.startSession("user-1", "club-1");
+    const result = await SessionService.startSession("user-1", "company-1");
     expect(result.id).toBe("new-session-id");
     expect(result.ended_at).toBeNull();
   });
@@ -79,21 +79,21 @@ describe("SessionService.listSessions", () => {
       {
         id: "s1",
         user_id: "user-1",
-        club_id: "club-1",
+        company_id: "company-1",
         started_at: new Date(),
         ended_at: new Date(),
       },
       {
         id: "s2",
         user_id: "user-1",
-        club_id: "club-1",
+        company_id: "company-1",
         started_at: new Date(),
         ended_at: null,
       },
     ];
     mockGetPool.mockReturnValue(makeMockPool([{ rows: sessions }]));
 
-    const result = await SessionService.listSessions("club-1", "user-1");
+    const result = await SessionService.listSessions("company-1", "user-1");
     expect(result).toHaveLength(2);
   });
 });
@@ -103,7 +103,7 @@ describe("SessionService.getSession", () => {
     mockGetPool.mockReturnValue(makeMockPool([{ rows: [] }]));
 
     await expect(
-      SessionService.getSession("club-1", "user-1", "nonexistent-session"),
+      SessionService.getSession("company-1", "user-1", "nonexistent-session"),
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
@@ -111,14 +111,14 @@ describe("SessionService.getSession", () => {
     const session = {
       id: "session-1",
       user_id: "user-1",
-      club_id: "club-1",
+      company_id: "company-1",
       started_at: new Date(),
       ended_at: null,
     };
     mockGetPool.mockReturnValue(makeMockPool([{ rows: [session] }]));
 
     const result = await SessionService.getSession(
-      "club-1",
+      "company-1",
       "user-1",
       "session-1",
     );

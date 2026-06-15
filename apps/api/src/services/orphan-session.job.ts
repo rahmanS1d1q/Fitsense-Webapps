@@ -38,7 +38,7 @@ async function closeOrphanSessions(): Promise<void> {
          SET ended_at = to_timestamp($1 / 1000.0),
              auto_closed = TRUE
          WHERE id = $2 AND ended_at IS NULL
-         RETURNING id, user_id, club_id, started_at,
+         RETURNING id, user_id, company_id, started_at,
                    EXTRACT(EPOCH FROM (to_timestamp($1 / 1000.0) - started_at)) / 60 AS duration_minutes`,
         [lastHrTime, sessionId],
       );
@@ -59,16 +59,41 @@ async function closeOrphanSessions(): Promise<void> {
       // Clean up Redis key
       await redis.del(key);
 
+      // Return company device to 'available' if session used one
+      try {
+        const deviceCheck = await pool.query(
+          `SELECT d.id, d.owner_type
+           FROM sessions s
+           LEFT JOIN devices d ON s.device_id = d.id
+           WHERE s.id = $1`,
+          [sessionId],
+        );
+        const dev = deviceCheck.rows[0];
+        if (dev?.id && dev.owner_type === "company") {
+          await pool.query(
+            "UPDATE devices SET status = 'available', updated_at = NOW() WHERE id = $1",
+            [dev.id],
+          );
+        }
+      } catch (devErr) {
+        console.warn(
+          "[OrphanSessionJob] device return error:",
+          (devErr as Error).message,
+        );
+      }
+
       // Call ML analyze-session async if duration > 5 minutes
       if (durationMinutes > 5) {
-        callMlAnalyzeSession(sessionId, session.user_id, session.club_id).catch(
-          (err) => {
-            console.warn(
-              "[OrphanSessionJob] ML analyze-session failed:",
-              (err as Error).message,
-            );
-          },
-        );
+        callMlAnalyzeSession(
+          sessionId,
+          session.user_id,
+          session.company_id,
+        ).catch((err) => {
+          console.warn(
+            "[OrphanSessionJob] ML analyze-session failed:",
+            (err as Error).message,
+          );
+        });
       }
     } catch (err) {
       console.error(
@@ -82,7 +107,7 @@ async function closeOrphanSessions(): Promise<void> {
 async function callMlAnalyzeSession(
   sessionId: string,
   userId: string,
-  clubId: string,
+  companyId: string,
 ): Promise<void> {
   try {
     await fetch(`${config.ml.serviceUrl}/ml/analyze-session`, {
@@ -91,7 +116,7 @@ async function callMlAnalyzeSession(
       body: JSON.stringify({
         session_id: sessionId,
         user_id: userId,
-        club_id: clubId,
+        company_id: companyId,
       }),
       signal: AbortSignal.timeout(5000),
     });

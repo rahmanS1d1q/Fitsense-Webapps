@@ -142,37 +142,46 @@ router.post(
   "/mqtt-token",
   authMiddleware,
   async (req: Request, res: Response) => {
-    const { userId, clubId, role } = req.user!;
-    const mqttToken = await AuthService.issueMqttToken(userId, clubId, role);
+    const { userId, companyId, role } = req.user!;
+    const mqttToken = await AuthService.issueMqttToken(userId, companyId, role);
     return res.json({ mqttToken });
   },
 );
 
 /**
- * POST /api/auth/register-club
+ * POST /api/auth/register-company
  * Requirements: 1.1, 1.2, 1.3
  */
-router.post("/register-club", async (req: Request, res: Response) => {
-  const { name, slug, address, phone, ownerName, ownerEmail, ownerPassword } =
-    req.body;
+router.post("/register-company", async (req: Request, res: Response) => {
+  const {
+    name,
+    slug,
+    address,
+    phone,
+    ownerFirstName,
+    ownerLastName,
+    ownerEmail,
+    ownerPassword,
+  } = req.body;
 
-  if (!name || !slug || !ownerName || !ownerEmail || !ownerPassword) {
+  if (!name || !slug || !ownerFirstName || !ownerEmail || !ownerPassword) {
     return res.status(400).json({
       error: {
         code: "VALIDATION_ERROR",
         message:
-          "name, slug, ownerName, ownerEmail, ownerPassword are required",
+          "name, slug, ownerFirstName, ownerEmail, ownerPassword are required",
       },
     });
   }
 
   try {
-    const result = await AuthService.registerClub({
+    const result = await AuthService.registerCompany({
       name,
       slug,
       address,
       phone,
-      ownerName,
+      ownerFirstName,
+      ownerLastName: ownerLastName ?? "",
       ownerEmail,
       ownerPassword,
     });
@@ -184,7 +193,7 @@ router.post("/register-club", async (req: Request, res: Response) => {
       message?: string;
       field?: string;
     };
-    if (error.statusCode === 409) {
+    if (error.statusCode === 409)
       return res.status(409).json({
         error: {
           code: error.code ?? "CONFLICT",
@@ -192,8 +201,7 @@ router.post("/register-club", async (req: Request, res: Response) => {
           field: error.field,
         },
       });
-    }
-    if (error.statusCode === 400) {
+    if (error.statusCode === 400)
       return res.status(400).json({
         error: {
           code: "VALIDATION_ERROR",
@@ -201,7 +209,68 @@ router.post("/register-club", async (req: Request, res: Response) => {
           field: error.field,
         },
       });
-    }
+    console.error("[auth] register-company error:", error.message);
+    return res.status(500).json({
+      error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+    });
+  }
+});
+
+/**
+ * POST /api/auth/register-club — backward compat alias
+ */
+router.post("/register-club", async (req: Request, res: Response) => {
+  const { name, slug, address, phone, ownerName, ownerEmail, ownerPassword } =
+    req.body;
+  const parts = (ownerName ?? "").split(" ");
+  const ownerFirstName = parts[0] ?? "";
+  const ownerLastName = parts.slice(1).join(" ");
+
+  if (!name || !slug || !ownerFirstName || !ownerEmail || !ownerPassword) {
+    return res.status(400).json({
+      error: {
+        code: "VALIDATION_ERROR",
+        message:
+          "name, slug, ownerName, ownerEmail, ownerPassword are required",
+      },
+    });
+  }
+
+  try {
+    const result = await AuthService.registerCompany({
+      name,
+      slug,
+      address,
+      phone,
+      ownerFirstName,
+      ownerLastName,
+      ownerEmail,
+      ownerPassword,
+    });
+    return res.status(201).json(result);
+  } catch (err: unknown) {
+    const error = err as {
+      statusCode?: number;
+      code?: string;
+      message?: string;
+      field?: string;
+    };
+    if (error.statusCode === 409)
+      return res.status(409).json({
+        error: {
+          code: error.code ?? "CONFLICT",
+          message: error.message,
+          field: error.field,
+        },
+      });
+    if (error.statusCode === 400)
+      return res.status(400).json({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: error.message,
+          field: error.field,
+        },
+      });
     console.error("[auth] register-club error:", error.message);
     return res.status(500).json({
       error: { code: "INTERNAL_ERROR", message: "Internal server error" },
@@ -215,13 +284,19 @@ router.post("/register-club", async (req: Request, res: Response) => {
  * Requirements: 18.2–18.7
  */
 router.post("/register-member", async (req: Request, res: Response) => {
-  const { code, name, email, password, age } = req.body;
+  const { code, firstName, lastName, name, email, password, age } = req.body;
 
-  if (!code || !name || !email || !password) {
+  // Support both firstName and legacy name field
+  const resolvedFirstName =
+    firstName ?? (name ? name.split(" ")[0] : undefined);
+  const resolvedLastName =
+    lastName ?? (name ? name.split(" ").slice(1).join(" ") : undefined);
+
+  if (!code || !resolvedFirstName || !email || !password) {
     return res.status(400).json({
       error: {
         code: "VALIDATION_ERROR",
-        message: "code, name, email, and password are required",
+        message: "code, firstName, email, and password are required",
       },
     });
   }
@@ -229,7 +304,8 @@ router.post("/register-member", async (req: Request, res: Response) => {
   try {
     const result = await InviteService.validateAndUseInvite({
       code,
-      name,
+      firstName: resolvedFirstName,
+      lastName: resolvedLastName,
       email,
       password,
       age,
@@ -241,24 +317,24 @@ router.post("/register-member", async (req: Request, res: Response) => {
       code?: string;
       message?: string;
     };
-    if (error.statusCode === 410) {
+    if (error.statusCode === 410)
       return res.status(410).json({
-        error: { code: error.code ?? "INVITE_INVALID", message: error.message },
+        error: {
+          code: error.code ?? "INVITE_INVALID",
+          message: error.message,
+        },
       });
-    }
-    if (error.statusCode === 409) {
-      return res.status(409).json({
-        error: { code: "EMAIL_CONFLICT", message: error.message },
-      });
-    }
-    if (error.statusCode === 400) {
+    if (error.statusCode === 409)
+      return res
+        .status(409)
+        .json({ error: { code: "EMAIL_CONFLICT", message: error.message } });
+    if (error.statusCode === 400)
       return res.status(400).json({
         error: {
           code: error.code ?? "VALIDATION_ERROR",
           message: error.message,
         },
       });
-    }
     console.error("[auth] register-member error:", error.message);
     return res.status(500).json({
       error: { code: "INTERNAL_ERROR", message: "Internal server error" },
@@ -336,5 +412,88 @@ router.post("/reset-password", async (req: Request, res: Response) => {
     });
   }
 });
+
+/**
+ * PATCH /api/auth/change-password
+ * Change password for the authenticated user.
+ */
+router.patch(
+  "/change-password",
+  authMiddleware,
+  async (req: Request, res: Response) => {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user!.userId;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "currentPassword dan newPassword wajib diisi",
+        },
+      });
+    }
+
+    if (
+      newPassword.length < 8 ||
+      !/[A-Z]/.test(newPassword) ||
+      !/[a-z]/.test(newPassword) ||
+      !/[0-9]/.test(newPassword)
+    ) {
+      return res.status(400).json({
+        error: {
+          code: "WEAK_PASSWORD",
+          message:
+            "Password harus minimal 8 karakter, mengandung huruf besar, huruf kecil, dan angka",
+        },
+      });
+    }
+
+    try {
+      const { getPool } = await import("../db/client");
+      const bcrypt = await import("bcryptjs");
+      const pool = getPool();
+
+      const userResult = await pool.query(
+        "SELECT password_hash FROM users WHERE id = $1",
+        [userId],
+      );
+      if (userResult.rows.length === 0) {
+        return res
+          .status(404)
+          .json({
+            error: { code: "NOT_FOUND", message: "User tidak ditemukan" },
+          });
+      }
+
+      const valid = await bcrypt.compare(
+        currentPassword,
+        userResult.rows[0].password_hash,
+      );
+      if (!valid) {
+        return res
+          .status(401)
+          .json({
+            error: { code: "INVALID_PASSWORD", message: "Password lama salah" },
+          });
+      }
+
+      const newHash = await bcrypt.hash(newPassword, 10);
+      await pool.query(
+        "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+        [newHash, userId],
+      );
+
+      return res.json({ message: "Password berhasil diubah" });
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      console.error("[auth] change-password error:", error.message);
+      return res
+        .status(500)
+        .json({
+          error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+        });
+    }
+  },
+);
 
 export default router;

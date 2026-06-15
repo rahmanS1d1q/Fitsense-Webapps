@@ -47,7 +47,7 @@ describe("InviteService.validateAndUseInvite", () => {
       [
         {
           id: "invite-id",
-          club_id: "club-uuid",
+          company_id: "company-uuid",
           expires_at: expiredDate,
           used_at: null,
         },
@@ -58,7 +58,8 @@ describe("InviteService.validateAndUseInvite", () => {
     await expect(
       InviteService.validateAndUseInvite({
         code: "expired-code",
-        name: "Test User",
+        firstName: "Test",
+        lastName: "User",
         email: "test@example.com",
         password: "Password1",
       }),
@@ -73,7 +74,7 @@ describe("InviteService.validateAndUseInvite", () => {
       [
         {
           id: "invite-id",
-          club_id: "club-uuid",
+          company_id: "company-uuid",
           expires_at: futureDate,
           used_at: usedAt,
         },
@@ -84,7 +85,8 @@ describe("InviteService.validateAndUseInvite", () => {
     await expect(
       InviteService.validateAndUseInvite({
         code: "used-code",
-        name: "Test User",
+        firstName: "Test",
+        lastName: "User",
         email: "test@example.com",
         password: "Password1",
       }),
@@ -101,7 +103,8 @@ describe("InviteService.validateAndUseInvite", () => {
     await expect(
       InviteService.validateAndUseInvite({
         code: "nonexistent-code",
-        name: "Test User",
+        firstName: "Test",
+        lastName: "User",
         email: "test@example.com",
         password: "Password1",
       }),
@@ -115,7 +118,7 @@ describe("InviteService.validateAndUseInvite", () => {
       [
         {
           id: "invite-id",
-          club_id: "club-uuid",
+          company_id: "company-uuid",
           expires_at: futureDate,
           used_at: null,
         },
@@ -127,7 +130,8 @@ describe("InviteService.validateAndUseInvite", () => {
     await expect(
       InviteService.validateAndUseInvite({
         code: "valid-code",
-        name: "Test User",
+        firstName: "Test",
+        lastName: "User",
         email: "existing@example.com",
         password: "Password1",
       }),
@@ -138,10 +142,9 @@ describe("InviteService.validateAndUseInvite", () => {
     const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const newUser = {
       id: "new-user-id",
-      name: "New Member",
+      first_name: "New",
+      last_name: "Member",
       email: "newmember@example.com",
-      role: "member",
-      club_id: "club-uuid",
     };
 
     const mockClient = makeMockClient([
@@ -149,13 +152,14 @@ describe("InviteService.validateAndUseInvite", () => {
       [
         {
           id: "invite-id",
-          club_id: "club-uuid",
+          company_id: "company-uuid",
           expires_at: futureDate,
           used_at: null,
         },
       ], // SELECT invite
       [], // SELECT email check — not found
       [newUser], // INSERT user
+      [], // INSERT users_companies
       [], // UPDATE invite used_at
       [], // COMMIT
     ]);
@@ -164,14 +168,15 @@ describe("InviteService.validateAndUseInvite", () => {
 
     const result = await InviteService.validateAndUseInvite({
       code: "valid-code",
-      name: "New Member",
+      firstName: "New",
+      lastName: "Member",
       email: "newmember@example.com",
       password: "Password1",
     });
 
     expect(result.user.id).toBe("new-user-id");
     expect(result.user.role).toBe("member");
-    expect(result.user.clubId).toBe("club-uuid");
+    expect(result.user.companyId).toBe("company-uuid");
 
     // Verify invite was marked as used
     const updateCall = mockClient.query.mock.calls.find(
@@ -188,7 +193,7 @@ describe("InviteService.validateAndUseInvite", () => {
       [
         {
           id: "invite-id",
-          club_id: "club-uuid",
+          company_id: "company-uuid",
           expires_at: futureDate,
           used_at: null,
         },
@@ -200,10 +205,12 @@ describe("InviteService.validateAndUseInvite", () => {
     await expect(
       InviteService.validateAndUseInvite({
         code: "valid-code",
-        name: "Test User",
+        firstName: "Test",
+        lastName: "User",
         email: "test@example.com",
         password: "weak", // too short, no uppercase, no digit
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 });
+

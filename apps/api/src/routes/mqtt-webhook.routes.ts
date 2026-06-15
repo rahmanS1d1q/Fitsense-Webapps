@@ -8,20 +8,20 @@ const router = Router();
 // ─── Pure ACL check function (exported for property testing) ─────────────────
 
 /**
- * Checks whether a given role/userId/clubId combination is allowed to
+ * Checks whether a given role/userId/companyId combination is allowed to
  * perform `action` on `topic`.
  *
  * ACL Matrix (Requirements 6.4 – 6.11):
- *  - member      : publish  → fitsense/{club_id}/{user_id}/hr (own only)
- *                  subscribe → fitsense/{club_id}/{user_id}/hr  (own only)
- *                              fitsense/{club_id}/{user_id}/alerts (own only)
+ *  - member      : publish  → fitsense/{company_id}/{user_id}/hr (own only)
+ *                  subscribe → fitsense/{company_id}/{user_id}/hr  (own only)
+ *                              fitsense/{company_id}/{user_id}/alerts (own only)
  *  - trainer /
  *    club_owner  : publish  → deny all
- *                  subscribe → fitsense/{club_id}/#  (own club)
- *                              fitsense/{club_id}/+/alerts (own club)
+ *                  subscribe → fitsense/{company_id}/#  (own club)
+ *                              fitsense/{company_id}/+/alerts (own club)
  *  - super_admin : publish  → deny all
  *                  subscribe → fitsense/#
- *  - ml_service  : publish  → fitsense/{club_id}/{user_id}/alerts only
+ *  - ml_service  : publish  → fitsense/{company_id}/{user_id}/alerts only
  *                  subscribe → deny all
  *  - web_dashboard (any role): deny all publish
  *    (web_dashboard is identified by clientType field; handled at route level)
@@ -29,23 +29,23 @@ const router = Router();
 export function checkAcl(
   role: string,
   userId: string,
-  clubId: string,
+  companyId: string,
   topic: string,
   action: "publish" | "subscribe",
 ): boolean {
   switch (role) {
     case "member":
-      return checkMemberAcl(userId, clubId, topic, action);
+      return checkMemberAcl(userId, companyId, topic, action);
 
     case "trainer":
     case "club_owner":
-      return checkTrainerOwnerAcl(clubId, topic, action);
+      return checkTrainerOwnerAcl(companyId, topic, action);
 
     case "super_admin":
       return checkSuperAdminAcl(topic, action);
 
     case "ml_service":
-      return checkMlServiceAcl(clubId, userId, topic, action);
+      return checkMlServiceAcl(companyId, userId, topic, action);
 
     default:
       return false;
@@ -54,12 +54,12 @@ export function checkAcl(
 
 function checkMemberAcl(
   userId: string,
-  clubId: string,
+  companyId: string,
   topic: string,
   action: "publish" | "subscribe",
 ): boolean {
-  const hrTopic = `fitsense/${clubId}/${userId}/hr`;
-  const alertsTopic = `fitsense/${clubId}/${userId}/alerts`;
+  const hrTopic = `fitsense/${companyId}/${userId}/hr`;
+  const alertsTopic = `fitsense/${companyId}/${userId}/alerts`;
 
   if (action === "publish") {
     return topic === hrTopic;
@@ -69,16 +69,16 @@ function checkMemberAcl(
 }
 
 function checkTrainerOwnerAcl(
-  clubId: string,
+  companyId: string,
   topic: string,
   action: "publish" | "subscribe",
 ): boolean {
   if (action === "publish") return false;
 
-  // allow subscribe to fitsense/{club_id}/#
-  if (matchesWildcardHash(`fitsense/${clubId}`, topic)) return true;
-  // allow subscribe to fitsense/{club_id}/+/alerts
-  if (matchesSingleLevelAlerts(clubId, topic)) return true;
+  // allow subscribe to fitsense/{company_id}/#
+  if (matchesWildcardHash(`fitsense/${companyId}`, topic)) return true;
+  // allow subscribe to fitsense/{company_id}/+/alerts
+  if (matchesSingleLevelAlerts(companyId, topic)) return true;
 
   return false;
 }
@@ -93,14 +93,14 @@ function checkSuperAdminAcl(
 }
 
 function checkMlServiceAcl(
-  clubId: string,
+  companyId: string,
   userId: string,
   topic: string,
   action: "publish" | "subscribe",
 ): boolean {
   if (action === "subscribe") return false;
-  // allow publish only to fitsense/{club_id}/{user_id}/alerts
-  return topic === `fitsense/${clubId}/${userId}/alerts`;
+  // allow publish only to fitsense/{company_id}/{user_id}/alerts
+  return topic === `fitsense/${companyId}/${userId}/alerts`;
 }
 
 // ─── Topic pattern helpers ────────────────────────────────────────────────────
@@ -114,15 +114,15 @@ function matchesWildcardHash(prefix: string, topic: string): boolean {
 }
 
 /**
- * Matches `fitsense/{club_id}/+/alerts`
- * i.e. exactly 4 segments: fitsense / {club_id} / {anything} / alerts
+ * Matches `fitsense/{company_id}/+/alerts`
+ * i.e. exactly 4 segments: fitsense / {company_id} / {anything} / alerts
  */
-function matchesSingleLevelAlerts(clubId: string, topic: string): boolean {
+function matchesSingleLevelAlerts(companyId: string, topic: string): boolean {
   const parts = topic.split("/");
   return (
     parts.length === 4 &&
     parts[0] === "fitsense" &&
-    parts[1] === clubId &&
+    parts[1] === companyId &&
     parts[3] === "alerts"
   );
 }
@@ -150,12 +150,12 @@ router.post("/auth", async (req: Request, res: Response) => {
   try {
     const payload = jwt.verify(password, config.jwt.secret) as {
       userId: string;
-      clubId: string | null;
+      companyId: string | null;
       role: string;
       exp: number;
     };
 
-    // Cache session in Redis so ACL webhook can look up role/clubId/userId
+    // Cache session in Redis so ACL webhook can look up role/companyId/userId
     const redis = getRedis();
     const ttl = payload.exp - Math.floor(Date.now() / 1000);
     if (ttl > 0) {
@@ -164,7 +164,7 @@ router.post("/auth", async (req: Request, res: Response) => {
         ttl,
         JSON.stringify({
           userId: payload.userId,
-          clubId: payload.clubId ?? "",
+          companyId: payload.companyId ?? "",
           role: payload.role,
         }),
       );
@@ -211,14 +211,14 @@ router.post("/acl", async (req: Request, res: Response) => {
 
     const session = JSON.parse(sessionRaw) as {
       userId: string;
-      clubId: string;
+      companyId: string;
       role: string;
     };
 
     const allowed = checkAcl(
       session.role,
       session.userId,
-      session.clubId,
+      session.companyId,
       topic,
       action,
     );
@@ -230,3 +230,5 @@ router.post("/acl", async (req: Request, res: Response) => {
 });
 
 export default router;
+
+

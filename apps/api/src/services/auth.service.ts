@@ -7,14 +7,14 @@ import { getRedis } from "../db/redis";
 
 export interface JwtPayload {
   userId: string;
-  clubId: string | null;
+  companyId: string | null;
   role: "super_admin" | "club_owner" | "trainer" | "member";
   exp: number;
 }
 
 export interface MqttTokenPayload {
   userId: string;
-  clubId: string;
+  companyId: string;
   role: string;
   allowedTopics: string[];
   exp: number;
@@ -26,10 +26,11 @@ export interface LoginResult {
   refreshToken: string;
   user: {
     id: string;
-    name: string;
+    firstName: string;
+    lastName: string;
     email: string;
     role: string;
-    clubId: string | null;
+    companyId: string | null;
   };
 }
 
@@ -55,18 +56,18 @@ function parseDurationToSeconds(duration: string): number {
 
 function getMqttAllowedTopics(
   role: string,
-  clubId: string | null,
+  companyId: string | null,
   userId: string,
 ): string[] {
   switch (role) {
     case "member":
       return [
-        `fitsense/${clubId}/${userId}/hr`,
-        `fitsense/${clubId}/${userId}/alerts`,
+        `fitsense/${companyId}/${userId}/hr`,
+        `fitsense/${companyId}/${userId}/alerts`,
       ];
     case "trainer":
     case "club_owner":
-      return [`fitsense/${clubId}/#`];
+      return [`fitsense/${companyId}/#`];
     case "super_admin":
       return ["fitsense/#"];
     default:
@@ -76,31 +77,22 @@ function getMqttAllowedTopics(
 
 export function generateJwt(
   userId: string,
-  clubId: string | null,
+  companyId: string | null,
   role: string,
 ): string {
   const expiresInSeconds = parseDurationToSeconds(config.jwt.expiresIn);
-  const payload: Omit<JwtPayload, "exp"> & { iat?: number } = {
-    userId,
-    clubId,
-    role: role as JwtPayload["role"],
-  };
+  const payload = { userId, companyId, role };
   return jwt.sign(payload, config.jwt.secret, { expiresIn: expiresInSeconds });
 }
 
 export function generateMqttToken(
   userId: string,
-  clubId: string | null,
+  companyId: string | null,
   role: string,
 ): string {
   const expiresInSeconds = parseDurationToSeconds(config.mqtt.tokenExpiresIn);
-  const allowedTopics = getMqttAllowedTopics(role, clubId, userId);
-  const payload: Omit<MqttTokenPayload, "exp"> = {
-    userId,
-    clubId: clubId ?? "",
-    role,
-    allowedTopics,
-  };
+  const allowedTopics = getMqttAllowedTopics(role, companyId, userId);
+  const payload = { userId, companyId: companyId ?? "", role, allowedTopics };
   return jwt.sign(payload, config.jwt.secret, { expiresIn: expiresInSeconds });
 }
 
@@ -109,23 +101,50 @@ export async function login(
   password: string,
 ): Promise<LoginResult> {
   const pool = getPool();
-  const result = await pool.query(
-    "SELECT id, name, email, password_hash, role, club_id FROM users WHERE email = $1 AND status = $2",
-    [email, "active"],
+
+  // Step 1: fetch user — no JOIN to avoid issues with schema changes
+  const userResult = await pool.query(
+    "SELECT id, first_name, last_name, email, password_hash, role as users_role, status FROM users WHERE email = $1",
+    [email],
   );
 
-  if (result.rows.length === 0) {
+  if (userResult.rows.length === 0) {
     throw Object.assign(new Error("Invalid credentials"), { statusCode: 401 });
   }
 
-  const user = result.rows[0];
+  const user = userResult.rows[0];
+
+  if (user.status !== "active") {
+    throw Object.assign(new Error("Invalid credentials"), { statusCode: 401 });
+  }
+
   const passwordValid = await bcrypt.compare(password, user.password_hash);
   if (!passwordValid) {
     throw Object.assign(new Error("Invalid credentials"), { statusCode: 401 });
   }
 
-  const jwtToken = generateJwt(user.id, user.club_id, user.role);
-  const mqttToken = generateMqttToken(user.id, user.club_id, user.role);
+  // Step 2: determine role and companyId
+  let effectiveRole: string;
+  let companyId: string | null = null;
+
+  if (user.users_role === "super_admin") {
+    effectiveRole = "super_admin";
+  } else {
+    const ucResult = await pool.query(
+      "SELECT role, company_id FROM users_companies WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
+      [user.id],
+    );
+    if (ucResult.rows.length === 0) {
+      throw Object.assign(new Error("User has no role assigned"), {
+        statusCode: 401,
+      });
+    }
+    effectiveRole = ucResult.rows[0].role;
+    companyId = ucResult.rows[0].company_id;
+  }
+
+  const jwtToken = generateJwt(user.id, companyId, effectiveRole);
+  const mqttToken = generateMqttToken(user.id, companyId, effectiveRole);
   const refreshToken = uuidv4();
 
   const redis = getRedis();
@@ -143,10 +162,11 @@ export async function login(
     refreshToken,
     user: {
       id: user.id,
-      name: user.name,
+      firstName: user.first_name ?? "",
+      lastName: user.last_name ?? "",
       email: user.email,
-      role: user.role,
-      clubId: user.club_id,
+      role: effectiveRole,
+      companyId,
     },
   };
 }
@@ -166,17 +186,36 @@ export async function refresh(
 
   const pool = getPool();
   const result = await pool.query(
-    "SELECT id, club_id, role FROM users WHERE id = $1 AND status = $2",
-    [userId, "active"],
+    "SELECT id, role as users_role, status FROM users WHERE id = $1",
+    [userId],
   );
 
-  if (result.rows.length === 0) {
+  if (result.rows.length === 0 || result.rows[0].status !== "active") {
     throw Object.assign(new Error("User not found"), { statusCode: 401 });
   }
 
   const user = result.rows[0];
-  const jwtToken = generateJwt(user.id, user.club_id, user.role);
-  const mqttToken = generateMqttToken(user.id, user.club_id, user.role);
+  let effectiveRole: string;
+  let companyId: string | null = null;
+
+  if (user.users_role === "super_admin") {
+    effectiveRole = "super_admin";
+  } else {
+    const ucResult = await pool.query(
+      "SELECT role, company_id FROM users_companies WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
+      [userId],
+    );
+    if (ucResult.rows.length === 0) {
+      throw Object.assign(new Error("User has no role assigned"), {
+        statusCode: 401,
+      });
+    }
+    effectiveRole = ucResult.rows[0].role;
+    companyId = ucResult.rows[0].company_id;
+  }
+
+  const jwtToken = generateJwt(userId, companyId, effectiveRole);
+  const mqttToken = generateMqttToken(userId, companyId, effectiveRole);
 
   // Rotate refresh token
   const newRefreshToken = uuidv4();
@@ -198,32 +237,39 @@ export async function logout(userId: string): Promise<void> {
 
 export async function issueMqttToken(
   userId: string,
-  clubId: string | null,
+  companyId: string | null,
   role: string,
 ): Promise<string> {
-  return generateMqttToken(userId, clubId, role);
+  return generateMqttToken(userId, companyId, role);
 }
 
-export interface RegisterClubInput {
+export interface RegisterCompanyInput {
   name: string;
   slug: string;
   address?: string;
   phone?: string;
-  ownerName: string;
+  ownerFirstName: string;
+  ownerLastName?: string;
   ownerEmail: string;
   ownerPassword: string;
 }
 
-export interface RegisterClubResult {
-  club: { id: string; name: string; slug: string; status: string };
-  owner: { id: string; name: string; email: string; role: string };
+export interface RegisterCompanyResult {
+  company: { id: string; name: string; slug: string; status: string };
+  owner: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    role: string;
+  };
 }
 
 const SLUG_REGEX = /^[a-z0-9-]{3,50}$/;
 
-export async function registerClub(
-  input: RegisterClubInput,
-): Promise<RegisterClubResult> {
+export async function registerCompany(
+  input: RegisterCompanyInput,
+): Promise<RegisterCompanyResult> {
   if (!SLUG_REGEX.test(input.slug)) {
     throw Object.assign(new Error("Invalid slug format"), {
       statusCode: 400,
@@ -237,39 +283,52 @@ export async function registerClub(
   try {
     await client.query("BEGIN");
 
-    // Check slug uniqueness
     const slugCheck = await client.query(
-      "SELECT id FROM clubs WHERE slug = $1",
+      "SELECT id FROM companies WHERE slug = $1",
       [input.slug],
     );
     if (slugCheck.rows.length > 0) {
       throw Object.assign(
-        new Error(`Slug '${input.slug}' sudah digunakan oleh club lain.`),
-        {
-          statusCode: 409,
-          code: "SLUG_CONFLICT",
-          field: "slug",
-        },
+        new Error(`Slug '${input.slug}' sudah digunakan oleh company lain.`),
+        { statusCode: 409, code: "SLUG_CONFLICT", field: "slug" },
       );
     }
 
-    // Create club
-    const clubResult = await client.query(
-      "INSERT INTO clubs (name, slug, address, phone) VALUES ($1, $2, $3, $4) RETURNING id, name, slug, status",
+    const companyResult = await client.query(
+      "INSERT INTO companies (name, slug, address, phone) VALUES ($1, $2, $3, $4) RETURNING id, name, slug, status",
       [input.name, input.slug, input.address ?? null, input.phone ?? null],
     );
-    const club = clubResult.rows[0];
+    const company = companyResult.rows[0];
 
-    // Hash password and create club_owner
+    // Owner: role stored in users_companies, not in users.role
     const passwordHash = await bcrypt.hash(input.ownerPassword, 10);
     const ownerResult = await client.query(
-      "INSERT INTO users (club_id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role",
-      [club.id, input.ownerName, input.ownerEmail, passwordHash, "club_owner"],
+      "INSERT INTO users (first_name, last_name, email, password_hash, role, status) VALUES ($1, $2, $3, $4, 'club_owner', 'active') RETURNING id, first_name, last_name, email",
+      [
+        input.ownerFirstName,
+        input.ownerLastName || input.ownerFirstName,
+        input.ownerEmail,
+        passwordHash,
+      ],
     );
     const owner = ownerResult.rows[0];
 
+    await client.query(
+      "INSERT INTO users_companies (user_id, company_id, role) VALUES ($1, $2, 'club_owner')",
+      [owner.id, company.id],
+    );
+
     await client.query("COMMIT");
-    return { club, owner };
+    return {
+      company,
+      owner: {
+        id: owner.id,
+        firstName: owner.first_name,
+        lastName: owner.last_name ?? "",
+        email: owner.email,
+        role: "club_owner",
+      },
+    };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
@@ -277,3 +336,7 @@ export async function registerClub(
     client.release();
   }
 }
+
+// Backward compat alias
+export { registerCompany as registerClub };
+export type { RegisterCompanyInput as RegisterClubInput };

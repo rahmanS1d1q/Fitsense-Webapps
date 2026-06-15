@@ -5,16 +5,14 @@ import { useMqtt } from "../../../hooks/useMqtt";
 import HRZoneBadge, { HRZone } from "../../../components/HRZoneBadge";
 import AlertBanner, { Alert } from "../../../components/AlertBanner";
 import ConnectionStatus from "../../../components/ConnectionStatus";
+import Navbar from "../../../components/Navbar";
+import PageHeader from "../../../components/PageHeader";
+import { apiPost } from "../../../lib/api";
 
-/**
- * Member dashboard — shows own HR, zone, session duration.
- * Updates in < 1 second when new MQTT data arrives.
- * Requirements: 14.1, 14.2, 14.4
- */
 export default function MemberDashboardPage() {
-  const clubId =
+  const companyId =
     typeof window !== "undefined"
-      ? (sessionStorage.getItem("clubId") ?? "")
+      ? (sessionStorage.getItem("companyId") ?? "")
       : "";
   const userId =
     typeof window !== "undefined"
@@ -26,13 +24,16 @@ export default function MemberDashboardPage() {
   const [sessionStart] = useState<number>(Date.now());
   const [elapsed, setElapsed] = useState(0);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const [sessionMsg, setSessionMsg] = useState("");
 
-  // Update session duration every second
   useEffect(() => {
-    const timer = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - sessionStart) / 1000));
-    }, 1000);
-    return () => clearInterval(timer);
+    const t = setInterval(
+      () => setElapsed(Math.floor((Date.now() - sessionStart) / 1000)),
+      1000,
+    );
+    return () => clearInterval(t);
   }, [sessionStart]);
 
   const handleMessage = useCallback(
@@ -40,28 +41,29 @@ export default function MemberDashboardPage() {
       const parts = topic.split("/");
       if (parts.length < 4) return;
       const type = parts[3];
-
       try {
         const data = JSON.parse(payload.toString());
-
         if (type === "hr") {
           setHr(data.hr as number);
           setZone((data.hr_zone ?? "unknown") as HRZone);
         }
-
         if (type === "alerts") {
-          const alert: Alert = {
-            id: `${Date.now()}`,
-            memberId: userId,
-            memberName: "Saya",
-            type: data.alert_type as "CRITICAL" | "WARNING",
-            message: data.alert_message as string,
-            timestamp: Date.now(),
-          };
-          setAlerts((prev) => [alert, ...prev].slice(0, 5));
+          setAlerts((prev) =>
+            [
+              {
+                id: `${Date.now()}`,
+                memberId: userId,
+                memberName: "Saya",
+                type: data.alert_type as "CRITICAL" | "WARNING",
+                message: data.alert_message as string,
+                timestamp: Date.now(),
+              },
+              ...prev,
+            ].slice(0, 5),
+          );
         }
       } catch {
-        // Ignore malformed messages
+        /* ignore */
       }
     },
     [userId],
@@ -70,79 +72,289 @@ export default function MemberDashboardPage() {
   const { status, subscribe } = useMqtt({ onMessage: handleMessage });
 
   useEffect(() => {
-    if (status === "connected" && clubId && userId) {
-      subscribe(`fitsense/${clubId}/${userId}/hr`);
-      subscribe(`fitsense/${clubId}/${userId}/alerts`);
+    if (status === "connected" && companyId && userId) {
+      subscribe(`fitsense/${companyId}/${userId}/hr`);
+      subscribe(`fitsense/${companyId}/${userId}/alerts`);
     }
-  }, [status, clubId, userId, subscribe]);
+  }, [status, companyId, userId, subscribe]);
 
-  const formatDuration = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${String(s).padStart(2, "0")}`;
+  const formatDuration = (s: number) => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0)
+      return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+    return `${m}:${String(sec).padStart(2, "0")}`;
+  };
+
+  const getHRColor = () => {
+    if (!hr) return "var(--gray-500)";
+    if (hr < 100) return "var(--brand-600)";
+    if (hr < 140) return "var(--success-600)";
+    if (hr < 170) return "var(--warning-600)";
+    return "var(--danger-600)";
+  };
+
+  const handleStartSession = async () => {
+    setSessionBusy(true);
+    setSessionMsg("");
+    const { ok, status: code, data } = await apiPost("/sessions/start", {});
+    setSessionBusy(false);
+    if (ok) {
+      setActiveSessionId(data.session?.id ?? null);
+      setSessionMsg("Sesi dimulai. Mulai kirim data HR dari sensor.");
+    } else if (code === 409) {
+      setActiveSessionId(data.activeSessionId ?? null);
+      setSessionMsg("Sesi aktif sudah ada.");
+    } else {
+      setSessionMsg(data?.error?.message ?? "Gagal memulai sesi.");
+    }
+  };
+
+  const handleEndSession = async () => {
+    if (!activeSessionId) return;
+    setSessionBusy(true);
+    setSessionMsg("");
+    const { ok, data } = await apiPost("/sessions/end", {
+      sessionId: activeSessionId,
+    });
+    setSessionBusy(false);
+    if (ok) {
+      setActiveSessionId(null);
+      setSessionMsg("Sesi selesai.");
+    } else {
+      setSessionMsg(data?.error?.message ?? "Gagal mengakhiri sesi.");
+    }
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 500, margin: "0 auto" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <h1>Dashboard Member</h1>
-        <ConnectionStatus status={status} />
-      </div>
+    <>
+      <Navbar />
+      <div style={{ padding: "32px 32px", maxWidth: 720, margin: "0 auto" }}>
+        <PageHeader
+          title="My Session"
+          subtitle="Heart rate monitoring real-time"
+          right={<ConnectionStatus status={status} />}
+        />
 
-      <AlertBanner
-        alerts={alerts}
-        onDismiss={(id) => setAlerts((prev) => prev.filter((a) => a.id !== id))}
-      />
+        <AlertBanner
+          alerts={alerts}
+          onDismiss={(id) =>
+            setAlerts((prev) => prev.filter((a) => a.id !== id))
+          }
+        />
 
-      <div
-        style={{
-          background: "#fff",
-          borderRadius: 12,
-          padding: 32,
-          textAlign: "center",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-          marginBottom: 16,
-        }}
-      >
+        {/* HR Card */}
         <div
           style={{
-            fontSize: 72,
-            fontWeight: 700,
-            color: "#1d4ed8",
-            lineHeight: 1,
+            background: "linear-gradient(180deg, #ffffff 0%, #fafbfc 100%)",
+            borderRadius: "var(--radius-xl)",
+            padding: "48px 32px",
+            textAlign: "center",
+            boxShadow: "var(--shadow-md)",
+            border: "1px solid var(--border-subtle)",
+            marginBottom: 16,
           }}
         >
-          {hr ?? "--"}
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--gray-500)",
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+              marginBottom: 8,
+            }}
+          >
+            Heart Rate
+          </div>
+          <div
+            style={{
+              fontSize: 96,
+              fontWeight: 800,
+              color: getHRColor(),
+              lineHeight: 1,
+              fontVariantNumeric: "tabular-nums",
+              transition: "color 0.3s",
+              letterSpacing: "-3px",
+            }}
+          >
+            {hr ?? "--"}
+          </div>
+          <div
+            style={{
+              fontSize: 14,
+              color: "var(--gray-400)",
+              marginTop: 4,
+              marginBottom: 24,
+              fontWeight: 600,
+              letterSpacing: "1px",
+            }}
+          >
+            BPM
+          </div>
+          <HRZoneBadge zone={zone} size="md" />
         </div>
-        <div style={{ fontSize: 18, color: "#6b7280", marginBottom: 16 }}>
-          bpm
-        </div>
-        <HRZoneBadge zone={zone} />
-      </div>
 
-      <div
-        style={{
-          background: "#fff",
-          borderRadius: 8,
-          padding: 16,
-          textAlign: "center",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-        }}
-      >
-        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 4 }}>
-          Durasi Sesi
+        {/* Session control */}
+        <div
+          style={{
+            background: "var(--bg-card)",
+            borderRadius: "var(--radius-lg)",
+            padding: 16,
+            border: "1px solid var(--border-subtle)",
+            boxShadow: "var(--shadow-xs)",
+            marginBottom: 16,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "var(--gray-700)",
+                }}
+              >
+                {activeSessionId
+                  ? "Sesi sedang berjalan"
+                  : "Belum ada sesi aktif"}
+              </div>
+              {sessionMsg && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--gray-500)",
+                    marginTop: 2,
+                  }}
+                >
+                  {sessionMsg}
+                </div>
+              )}
+            </div>
+            {activeSessionId ? (
+              <button
+                onClick={handleEndSession}
+                disabled={sessionBusy}
+                style={{
+                  padding: "9px 18px",
+                  background: sessionBusy
+                    ? "var(--gray-300)"
+                    : "var(--danger-600)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  cursor: sessionBusy ? "not-allowed" : "pointer",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {sessionBusy ? "..." : "Akhiri Sesi"}
+              </button>
+            ) : (
+              <button
+                onClick={handleStartSession}
+                disabled={sessionBusy}
+                style={{
+                  padding: "9px 18px",
+                  background: sessionBusy
+                    ? "var(--gray-300)"
+                    : "var(--success-600)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  cursor: sessionBusy ? "not-allowed" : "pointer",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {sessionBusy ? "..." : "Mulai Sesi"}
+              </button>
+            )}
+          </div>
         </div>
-        <div style={{ fontSize: 32, fontWeight: 600 }}>
-          {formatDuration(elapsed)}
+
+        {/* Stats Grid */}
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
+        >
+          <div
+            style={{
+              background: "var(--bg-card)",
+              borderRadius: "var(--radius-lg)",
+              padding: 20,
+              border: "1px solid var(--border-subtle)",
+              boxShadow: "var(--shadow-xs)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--gray-500)",
+                fontWeight: 600,
+                marginBottom: 6,
+                textTransform: "uppercase",
+                letterSpacing: "0.6px",
+              }}
+            >
+              Durasi
+            </div>
+            <div
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "var(--gray-900)",
+                fontVariantNumeric: "tabular-nums",
+                letterSpacing: "-0.5px",
+              }}
+            >
+              {formatDuration(elapsed)}
+            </div>
+          </div>
+          <div
+            style={{
+              background: "var(--bg-card)",
+              borderRadius: "var(--radius-lg)",
+              padding: 20,
+              border: "1px solid var(--border-subtle)",
+              boxShadow: "var(--shadow-xs)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--gray-500)",
+                fontWeight: 600,
+                marginBottom: 6,
+                textTransform: "uppercase",
+                letterSpacing: "0.6px",
+              }}
+            >
+              Zona
+            </div>
+            <div
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "var(--gray-900)",
+                textTransform: "capitalize",
+                letterSpacing: "-0.5px",
+              }}
+            >
+              {zone === "unknown" ? "—" : zone.replace("_", " ")}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

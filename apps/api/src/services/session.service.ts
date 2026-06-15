@@ -5,11 +5,14 @@
 
 import { getPool } from "../db/client";
 import { config } from "../config";
+import * as workoutAssignmentService from "./workout-assignment.service";
 
 export interface Session {
   id: string;
   user_id: string;
-  club_id: string;
+  company_id: string;
+  workout_id: string | null;
+  mood: string | null;
   started_at: Date;
   ended_at: Date | null;
   avg_hr: number | null;
@@ -28,7 +31,9 @@ export interface Session {
  */
 export async function startSession(
   userId: string,
-  clubId: string,
+  companyId: string,
+  workoutId?: string,
+  mood?: string,
 ): Promise<Session> {
   const pool = getPool();
 
@@ -47,14 +52,36 @@ export async function startSession(
   }
 
   const result = await pool.query(
-    `INSERT INTO sessions (user_id, club_id, started_at)
-     VALUES ($1, $2, NOW())
-     RETURNING id, user_id, club_id, started_at, ended_at, avg_hr, max_hr, min_hr,
-               duration_minutes, hr_zone, auto_closed, created_at`,
-    [userId, clubId],
+    `INSERT INTO sessions (user_id, company_id, workout_id, mood, started_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     RETURNING *`,
+    [userId, companyId, workoutId ?? null, mood ?? null],
   );
 
-  return result.rows[0] as Session;
+  const session = result.rows[0] as Session;
+
+  // Cek apakah ada workout assignment pending hari ini untuk member.
+  // Jika ada dan session belum punya workout, auto-attach workout assignment.
+  try {
+    const assignment = await workoutAssignmentService.getTodayPendingAssignment(
+      userId,
+      companyId,
+    );
+    if (assignment && !session.workout_id) {
+      await pool.query("UPDATE sessions SET workout_id = $1 WHERE id = $2", [
+        assignment.workout_id,
+        session.id,
+      ]);
+      session.workout_id = assignment.workout_id;
+    }
+  } catch (err) {
+    console.warn(
+      "[SessionService] auto-attach assignment error:",
+      (err as Error).message,
+    );
+  }
+
+  return session;
 }
 
 /**
@@ -70,7 +97,7 @@ export async function endSession(
 
   // Verify session exists and belongs to user
   const sessionCheck = await pool.query(
-    "SELECT id, club_id, started_at FROM sessions WHERE id = $1 AND user_id = $2 AND ended_at IS NULL",
+    "SELECT id, company_id, started_at FROM sessions WHERE id = $1 AND user_id = $2 AND ended_at IS NULL",
     [sessionId, userId],
   );
 
@@ -84,7 +111,7 @@ export async function endSession(
   const session = sessionCheck.rows[0];
 
   // Query HR stats from InfluxDB
-  const stats = await querySessionStats(sessionId, session.club_id, userId);
+  const stats = await querySessionStats(sessionId, session.company_id, userId);
 
   const result = await pool.query(
     `UPDATE sessions
@@ -95,7 +122,7 @@ export async function endSession(
          duration_minutes = $4,
          hr_zone = $5
      WHERE id = $6
-     RETURNING id, user_id, club_id, started_at, ended_at, avg_hr, max_hr, min_hr,
+     RETURNING id, user_id, company_id, started_at, ended_at, avg_hr, max_hr, min_hr,
                duration_minutes, hr_zone, auto_closed, created_at`,
     [
       stats.avgHr,
@@ -109,15 +136,87 @@ export async function endSession(
 
   const ended = result.rows[0] as Session;
 
+  // Return company device to 'available' if session used one
+  try {
+    const deviceCheck = await pool.query(
+      `SELECT d.id, d.owner_type
+       FROM sessions s
+       LEFT JOIN devices d ON s.device_id = d.id
+       WHERE s.id = $1`,
+      [sessionId],
+    );
+    const dev = deviceCheck.rows[0];
+    if (dev?.id && dev.owner_type === "company") {
+      await pool.query(
+        "UPDATE devices SET status = 'available', updated_at = NOW() WHERE id = $1",
+        [dev.id],
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[SessionService] device return error:",
+      (err as Error).message,
+    );
+  }
+
   // Fire-and-forget ML analyze-session
-  callMlAnalyzeSession(sessionId, userId, session.club_id).catch((err) => {
+  callMlAnalyzeSession(sessionId, userId, session.company_id).catch((err) => {
     console.warn(
       "[SessionService] ML analyze-session failed:",
       (err as Error).message,
     );
   });
 
+  // Link workout assignment ke session jika ada pending assignment hari ini yang match
+  try {
+    const endedWorkoutId = ended.workout_id;
+    if (endedWorkoutId) {
+      const assignmentResult = await pool.query(
+        `SELECT id FROM workout_assignments
+         WHERE member_id = $1 AND workout_id = $2
+           AND status = 'pending' AND assigned_date = CURRENT_DATE
+         LIMIT 1`,
+        [userId, endedWorkoutId],
+      );
+      if (assignmentResult.rows.length > 0) {
+        await workoutAssignmentService.linkAssignmentToSession(
+          assignmentResult.rows[0].id,
+          sessionId,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[SessionService] link assignment error:",
+      (err as Error).message,
+    );
+  }
+
   return ended;
+}
+
+/**
+ * Lists all active sessions (ended_at IS NULL) in a company.
+ * Used by trainer/owner live monitoring.
+ */
+export async function listActiveSessions(companyId: string): Promise<
+  Array<{
+    id: string;
+    user_id: string;
+    started_at: Date;
+    workout_id: string | null;
+    mood: string | null;
+  }>
+> {
+  const pool = getPool();
+  const result = await pool.query(
+    `SELECT id, user_id, started_at, workout_id, mood
+     FROM sessions
+     WHERE company_id = $1 AND ended_at IS NULL
+     ORDER BY started_at DESC`,
+    [companyId],
+  );
+  return result.rows;
 }
 
 /**
@@ -125,17 +224,17 @@ export async function endSession(
  * Requirements: 10.5
  */
 export async function listSessions(
-  clubId: string,
+  companyId: string,
   userId: string,
 ): Promise<Session[]> {
   const pool = getPool();
   const result = await pool.query(
-    `SELECT id, user_id, club_id, started_at, ended_at, avg_hr, max_hr, min_hr,
+    `SELECT id, user_id, company_id, started_at, ended_at, avg_hr, max_hr, min_hr,
             duration_minutes, hr_zone, auto_closed, created_at
      FROM sessions
-     WHERE user_id = $1 AND club_id = $2
+     WHERE user_id = $1 AND company_id = $2
      ORDER BY started_at DESC`,
-    [userId, clubId],
+    [userId, companyId],
   );
   return result.rows as Session[];
 }
@@ -145,17 +244,17 @@ export async function listSessions(
  * Requirements: 10.6
  */
 export async function getSession(
-  clubId: string,
+  companyId: string,
   userId: string,
   sessionId: string,
 ): Promise<Session> {
   const pool = getPool();
   const result = await pool.query(
-    `SELECT id, user_id, club_id, started_at, ended_at, avg_hr, max_hr, min_hr,
+    `SELECT id, user_id, company_id, started_at, ended_at, avg_hr, max_hr, min_hr,
             duration_minutes, hr_zone, auto_closed, created_at
      FROM sessions
-     WHERE id = $1 AND user_id = $2 AND club_id = $3`,
-    [sessionId, userId, clubId],
+     WHERE id = $1 AND user_id = $2 AND company_id = $3`,
+    [sessionId, userId, companyId],
   );
   if (result.rows.length === 0) {
     throw Object.assign(new Error("Sesi tidak ditemukan."), {
@@ -177,7 +276,7 @@ interface SessionStats {
 
 async function querySessionStats(
   sessionId: string,
-  clubId: string,
+  companyId: string,
   userId: string,
 ): Promise<SessionStats> {
   try {
@@ -192,7 +291,7 @@ async function querySessionStats(
       from(bucket: "${config.influx.bucket}")
         |> range(start: -30d)
         |> filter(fn: (r) => r["_measurement"] == "hr_data")
-        |> filter(fn: (r) => r["club_id"] == "${clubId}")
+        |> filter(fn: (r) => r["company_id"] == "${companyId}")
         |> filter(fn: (r) => r["user_id"] == "${userId}")
         |> filter(fn: (r) => r["session_id"] == "${sessionId}")
         |> filter(fn: (r) => r["_field"] == "hr")
@@ -244,7 +343,7 @@ async function querySessionStats(
 async function callMlAnalyzeSession(
   sessionId: string,
   userId: string,
-  clubId: string,
+  companyId: string,
 ): Promise<void> {
   try {
     await fetch(`${config.ml.serviceUrl}/ml/analyze-session`, {
@@ -253,7 +352,7 @@ async function callMlAnalyzeSession(
       body: JSON.stringify({
         session_id: sessionId,
         user_id: userId,
-        club_id: clubId,
+        company_id: companyId,
       }),
       signal: AbortSignal.timeout(5000),
     });

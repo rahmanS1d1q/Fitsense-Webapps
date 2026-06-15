@@ -4,7 +4,7 @@
  * Property 5: Isolasi Tenant — Akses Cross-Club
  *
  * For any user with role `club_owner`, `trainer`, or `member`,
- * any request with a `clubId` different from the `club_id` in their JWT
+ * any request with a `companyId` different from the `club_id` in their JWT
  * must always return HTTP 403.
  *
  * Validates: Requirements 3.2, 15.1, 15.3, 15.5
@@ -17,8 +17,8 @@ import { JwtPayload } from "../../src/middleware/auth.middleware";
 
 type Role = JwtPayload["role"];
 
-function makeReq(user: JwtPayload, clubIdParam: string): Partial<Request> {
-  return { user, params: { clubId: clubIdParam } } as any;
+function makeReq(user: JwtPayload, companyIdParam: string): Partial<Request> {
+  return { user, params: { companyId: companyIdParam } } as any;
 }
 
 function makeRes() {
@@ -33,21 +33,21 @@ function makeNext(): jest.Mock {
 }
 
 describe("Property 5: Isolasi Tenant — Akses Cross-Club", () => {
-  it("any non-super_admin user accessing a different clubId must receive HTTP 403", () => {
+  it("any non-super_admin user accessing a different companyId must receive HTTP 403", () => {
     fc.assert(
       fc.property(
         fc.record({
           userId: fc.uuid(),
-          clubId: fc.uuid(),
+          companyId: fc.uuid(),
           role: fc.constantFrom<Role>("club_owner", "trainer", "member"),
           exp: fc.integer({ min: 1, max: 9999999999 }),
         }),
         fc.uuid(),
-        (user, differentClubId) => {
-          // Ensure the URL clubId is different from the JWT clubId
-          fc.pre(user.clubId !== differentClubId);
+        (user, differentcompanyId) => {
+          // Ensure the URL companyId is different from the JWT companyId
+          fc.pre(user.companyId !== differentcompanyId);
 
-          const req = makeReq(user, differentClubId);
+          const req = makeReq(user, differentcompanyId);
           const res = makeRes();
           const next = makeNext();
 
@@ -70,18 +70,18 @@ describe("Property 5: Isolasi Tenant — Akses Cross-Club", () => {
     );
   });
 
-  it("super_admin must always be allowed regardless of clubId in URL", () => {
+  it("super_admin must always be allowed regardless of companyId in URL", () => {
     fc.assert(
       fc.property(
         fc.record({
           userId: fc.uuid(),
-          clubId: fc.constant(null),
+          companyId: fc.constant(null),
           role: fc.constant<Role>("super_admin"),
           exp: fc.integer({ min: 1, max: 9999999999 }),
         }),
         fc.uuid(),
-        (user, anyClubId) => {
-          const req = makeReq(user, anyClubId);
+        (user, anycompanyId) => {
+          const req = makeReq(user, anycompanyId);
           const res = makeRes();
           const next = makeNext();
 
@@ -99,16 +99,16 @@ describe("Property 5: Isolasi Tenant — Akses Cross-Club", () => {
     );
   });
 
-  it("user accessing their own clubId must be allowed through", () => {
+  it("user accessing their own companyId must be allowed through", () => {
     fc.assert(
       fc.property(
         fc.uuid(),
         fc.uuid(),
         fc.constantFrom<Role>("club_owner", "trainer", "member"),
-        (userId, clubId, role) => {
-          const user: JwtPayload = { userId, clubId, role, exp: 9999999999 };
-          // URL clubId matches JWT clubId
-          const req = makeReq(user, clubId);
+        (userId, companyId, role) => {
+          const user: JwtPayload = { userId, companyId, role, exp: 9999999999 };
+          // URL companyId matches JWT companyId
+          const req = makeReq(user, companyId);
           const res = makeRes();
           const next = makeNext();
 
@@ -126,22 +126,22 @@ describe("Property 5: Isolasi Tenant — Akses Cross-Club", () => {
     );
   });
 
-  it("403 must be returned for all non-super_admin roles when clubId mismatches", () => {
+  it("403 must be returned for all non-super_admin roles when companyId mismatches", () => {
     fc.assert(
       fc.property(
         fc.constantFrom<Role>("club_owner", "trainer", "member"),
         fc.uuid(),
         fc.uuid(),
-        (role, jwtClubId, urlClubId) => {
-          fc.pre(jwtClubId !== urlClubId);
+        (role, jwtcompanyId, urlcompanyId) => {
+          fc.pre(jwtcompanyId !== urlcompanyId);
 
           const user: JwtPayload = {
             userId: "user-id",
-            clubId: jwtClubId,
+            companyId: jwtcompanyId,
             role,
             exp: 9999999999,
           };
-          const req = makeReq(user, urlClubId);
+          const req = makeReq(user, urlcompanyId);
           const res = makeRes();
           const next = makeNext();
 
@@ -159,3 +159,4 @@ describe("Property 5: Isolasi Tenant — Akses Cross-Club", () => {
     );
   });
 });
+

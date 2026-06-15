@@ -5,6 +5,7 @@
 
 import { Router, Request, Response } from "express";
 import { authMiddleware } from "../middleware/auth.middleware";
+import { rbacMiddleware } from "../middleware/rbac.middleware";
 import { tenantMiddleware } from "../middleware/tenant.middleware";
 import * as SessionService from "../services/session.service";
 
@@ -15,17 +16,21 @@ const router = Router();
  * Requirements: 10.1, 10.2
  */
 router.post("/start", authMiddleware, async (req: Request, res: Response) => {
-  const { userId, clubId } = req.user!;
-  if (!clubId) {
-    return res
-      .status(400)
-      .json({
-        error: { code: "VALIDATION_ERROR", message: "clubId required" },
-      });
+  const { userId, companyId } = req.user!;
+  const { workout_id, mood } = req.body;
+  if (!companyId) {
+    return res.status(400).json({
+      error: { code: "VALIDATION_ERROR", message: "companyId required" },
+    });
   }
 
   try {
-    const session = await SessionService.startSession(userId, clubId);
+    const session = await SessionService.startSession(
+      userId,
+      companyId,
+      workout_id,
+      mood,
+    );
     return res.status(201).json({ session });
   } catch (err: unknown) {
     const error = err as {
@@ -44,11 +49,9 @@ router.post("/start", authMiddleware, async (req: Request, res: Response) => {
       });
     }
     console.error("[sessions] startSession error:", error.message);
-    return res
-      .status(500)
-      .json({
-        error: { code: "INTERNAL_ERROR", message: "Internal server error" },
-      });
+    return res.status(500).json({
+      error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+    });
   }
 });
 
@@ -61,11 +64,9 @@ router.post("/end", authMiddleware, async (req: Request, res: Response) => {
   const { sessionId } = req.body;
 
   if (!sessionId) {
-    return res
-      .status(400)
-      .json({
-        error: { code: "VALIDATION_ERROR", message: "sessionId required" },
-      });
+    return res.status(400).json({
+      error: { code: "VALIDATION_ERROR", message: "sessionId required" },
+    });
   }
 
   try {
@@ -79,52 +80,73 @@ router.post("/end", authMiddleware, async (req: Request, res: Response) => {
         .json({ error: { code: "NOT_FOUND", message: error.message } });
     }
     console.error("[sessions] endSession error:", error.message);
-    return res
-      .status(500)
-      .json({
-        error: { code: "INTERNAL_ERROR", message: "Internal server error" },
-      });
+    return res.status(500).json({
+      error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+    });
   }
 });
 
 /**
- * GET /api/clubs/:clubId/members/:userId/sessions
- * Requirements: 10.5
+ * GET /api/companies/:companyId/sessions/active
+ * Returns all active sessions (ended_at IS NULL) for live monitoring.
+ * Access: trainer, club_owner
  */
 router.get(
-  "/:clubId/members/:userId/sessions",
+  "/:companyId/sessions/active",
   authMiddleware,
+  rbacMiddleware("trainer", "club_owner"),
   tenantMiddleware,
   async (req: Request, res: Response) => {
-    const { clubId, userId } = req.params;
+    const { companyId } = req.params;
     try {
-      const sessions = await SessionService.listSessions(clubId, userId);
+      const sessions = await SessionService.listActiveSessions(companyId);
       return res.json({ sessions });
     } catch (err: unknown) {
       const error = err as { message?: string };
-      console.error("[sessions] listSessions error:", error.message);
-      return res
-        .status(500)
-        .json({
-          error: { code: "INTERNAL_ERROR", message: "Internal server error" },
-        });
+      console.error("[sessions] listActiveSessions error:", error.message);
+      return res.status(500).json({
+        error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+      });
     }
   },
 );
 
 /**
- * GET /api/clubs/:clubId/members/:userId/sessions/:sessionId
- * Requirements: 10.6
+ * GET /api/clubs/:companyId/members/:userId/sessions
+ * Requirements: 10.5
  */
 router.get(
-  "/:clubId/members/:userId/sessions/:sessionId",
+  "/:companyId/members/:userId/sessions",
   authMiddleware,
   tenantMiddleware,
   async (req: Request, res: Response) => {
-    const { clubId, userId, sessionId } = req.params;
+    const { companyId, userId } = req.params;
+    try {
+      const sessions = await SessionService.listSessions(companyId, userId);
+      return res.json({ sessions });
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      console.error("[sessions] listSessions error:", error.message);
+      return res.status(500).json({
+        error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+      });
+    }
+  },
+);
+
+/**
+ * GET /api/clubs/:companyId/members/:userId/sessions/:sessionId
+ * Requirements: 10.6
+ */
+router.get(
+  "/:companyId/members/:userId/sessions/:sessionId",
+  authMiddleware,
+  tenantMiddleware,
+  async (req: Request, res: Response) => {
+    const { companyId, userId, sessionId } = req.params;
     try {
       const session = await SessionService.getSession(
-        clubId,
+        companyId,
         userId,
         sessionId,
       );
@@ -137,11 +159,9 @@ router.get(
           .json({ error: { code: "NOT_FOUND", message: error.message } });
       }
       console.error("[sessions] getSession error:", error.message);
-      return res
-        .status(500)
-        .json({
-          error: { code: "INTERNAL_ERROR", message: "Internal server error" },
-        });
+      return res.status(500).json({
+        error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+      });
     }
   },
 );

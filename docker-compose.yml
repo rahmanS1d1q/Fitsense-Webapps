@@ -85,12 +85,12 @@ services:
     ports:
       - "1883:1883"
       - "8083:8083"
-      - "8883:8883"
     volumes:
       - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
-      - ./emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
+      - emqx_data:/opt/emqx/data
     environment:
       EMQX_NODE__NAME: emqx@127.0.0.1
+      EMQX_NODE__COOKIE: fitsense-emqx-cookie
 
   influxdb:
     image: influxdb:2.7
@@ -139,4 +139,5 @@ volumes:
   influxdb_data:
   postgres_data:
   redis_data:
+  emqx_data:
   grafana_data:

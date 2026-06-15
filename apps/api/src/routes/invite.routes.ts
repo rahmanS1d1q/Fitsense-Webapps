@@ -7,22 +7,22 @@ import * as InviteService from "../services/invite.service";
 const router = Router();
 
 /**
- * POST /api/clubs/:clubId/invite
+ * POST /api/clubs/:companyId/invite
  * Generate an invite code for a club.
  * Auth: trainer or club_owner, tenant-scoped.
  * Requirements: 18.1
  */
 router.post(
-  "/:clubId/invite",
+  "/:companyId/invite",
   authMiddleware,
   rbacMiddleware("club_owner", "trainer"),
   tenantMiddleware,
   async (req: Request, res: Response) => {
-    const { clubId } = req.params;
+    const { companyId } = req.params;
     const createdBy = req.user!.userId;
 
     try {
-      const result = await InviteService.generateInvite(clubId, createdBy);
+      const result = await InviteService.generateInvite(companyId, createdBy);
       return res.status(201).json(result);
     } catch (err: unknown) {
       const error = err as { statusCode?: number; message?: string };
@@ -35,3 +35,4 @@ router.post(
 );
 
 export default router;
+

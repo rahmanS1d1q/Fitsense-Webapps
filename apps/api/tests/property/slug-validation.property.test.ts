@@ -66,3 +66,4 @@ describe("Property 1: Validasi Format Slug Club", () => {
     );
   });
 });
+

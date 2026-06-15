@@ -104,8 +104,9 @@ fitsense/
 - API routes di `apps/api/src/routes/`, business logic di `apps/api/src/services/`
 - Semua file API Server ditulis dalam TypeScript (`.ts`) — jangan gunakan `.js`
 - Middleware selalu diapply dalam urutan: `auth.middleware` → `rbac.middleware` → `tenant.middleware` → route handler
-- Semua query PostgreSQL wajib include filter `club_id` (kecuali `super_admin`)
-- Semua query InfluxDB wajib include filter tag `club_id` dan `user_id`
+- Semua query PostgreSQL wajib include filter `company_id` (kecuali `super_admin`)
+- Semua query InfluxDB wajib include filter tag `company_id` dan `user_id`
+- RBAC ditentukan dari tabel `users_companies`, bukan field `role` di `users`
 - HR Zone Classifier dijalankan di API Server (bukan ML Service) — logika sederhana, harus real-time
 - Batch Writer flush ke InfluxDB setiap 1 detik via Redis buffer — jangan write langsung per data point
 - ML analyze-session dipanggil async (fire-and-forget) setelah session end
@@ -118,11 +119,13 @@ fitsense/
 
 ## Redis Key Patterns
 
-| Key                               | TTL       | Penulis          | Pembaca               | Kegunaan                                      |
-| --------------------------------- | --------- | ---------------- | --------------------- | --------------------------------------------- |
-| `hr_buffer:{club_id}:{user_id}`   | —         | `MqttConsumer`   | `BatchWriter`         | Buffer HR sebelum flush ke InfluxDB           |
-| `rate_limit:login:{ip}`           | 15 menit  | `AuthService`    | `AuthService`         | Counter login gagal per IP                    |
-| `rate_limit:reset:{email}`        | 1 jam     | `PasswordResetService` | `PasswordResetService` | Counter reset password per email         |
-| `zone_state:{user_id}`            | 2 jam     | `MqttConsumer`   | `AnomalyChecker`      | Zona aktif + timestamp masuk zona per member  |
-| `alert_cooldown:{user_id}:{type}` | per jenis | `AnomalyChecker` | `AnomalyChecker`      | Cooldown: CRITICAL = 60s, WARNING = 120s      |
-| `session_last_hr:{session_id}`    | 2 jam     | `MqttConsumer`   | `OrphanSessionJob`    | Timestamp HR terakhir untuk deteksi orphan    |
+| Key                                | TTL          | Penulis                | Pembaca                | Kegunaan                                     |
+| ---------------------------------- | ------------ | ---------------------- | ---------------------- | -------------------------------------------- |
+| `hr_buffer:{company_id}:{user_id}` | —            | `MqttConsumer`         | `BatchWriter`          | Buffer HR sebelum flush ke InfluxDB          |
+| `rate_limit:login:{ip}`            | 15 menit     | `AuthService`          | `AuthService`          | Counter login gagal per IP                   |
+| `rate_limit:reset:{email}`         | 1 jam        | `PasswordResetService` | `PasswordResetService` | Counter reset password per email             |
+| `zone_state:{user_id}`             | 2 jam        | `MqttConsumer`         | `AnomalyChecker`       | Zona aktif + timestamp masuk zona per member |
+| `alert_cooldown:{user_id}:{type}`  | per jenis    | `AnomalyChecker`       | `AnomalyChecker`       | Cooldown: CRITICAL = 60s, WARNING = 120s     |
+| `session_last_hr:{session_id}`     | 2 jam        | `MqttConsumer`         | `OrphanSessionJob`     | Timestamp HR terakhir untuk deteksi orphan   |
+| `mqtt_session:{clientId}`          | sesuai token | `MqttWebhookHandler`   | `MqttWebhookHandler`   | Session MQTT untuk ACL lookup                |
+| `refresh_token:{userId}`           | 7 hari       | `AuthService`          | `AuthService`          | Refresh token JWT                            |

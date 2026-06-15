@@ -4,7 +4,7 @@ import { config } from "../config";
 
 export interface JwtPayload {
   userId: string;
-  clubId: string | null;
+  companyId: string | null; // null untuk super_admin
   role: "super_admin" | "club_owner" | "trainer" | "member";
   exp: number;
 }
@@ -31,14 +31,12 @@ export function authMiddleware(
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res
-      .status(401)
-      .json({
-        error: {
-          code: "UNAUTHORIZED",
-          message: "Missing or invalid authorization header",
-        },
-      });
+    res.status(401).json({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Missing or invalid authorization header",
+      },
+    });
     return;
   }
 
@@ -49,10 +47,8 @@ export function authMiddleware(
     req.user = payload;
     next();
   } catch {
-    res
-      .status(401)
-      .json({
-        error: { code: "UNAUTHORIZED", message: "Token is invalid or expired" },
-      });
+    res.status(401).json({
+      error: { code: "UNAUTHORIZED", message: "Token is invalid or expired" },
+    });
   }
 }

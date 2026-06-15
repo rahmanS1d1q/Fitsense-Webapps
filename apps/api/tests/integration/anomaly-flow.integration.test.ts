@@ -60,12 +60,13 @@ describe("Anomaly Detection Flow — Integration (26.2)", () => {
 
   describe("Alert topic format", () => {
     it("alert topic follows correct pattern", () => {
-      const clubId = "club-uuid-1";
+      const companyId = "club-uuid-1";
       const userId = "user-uuid-1";
-      const alertTopic = `fitsense/${clubId}/${userId}/alerts`;
+      const alertTopic = `fitsense/${companyId}/${userId}/alerts`;
       expect(alertTopic).toBe("fitsense/club-uuid-1/user-uuid-1/alerts");
       expect(alertTopic.split("/")).toHaveLength(4);
       expect(alertTopic.endsWith("/alerts")).toBe(true);
     });
   });
 });
+

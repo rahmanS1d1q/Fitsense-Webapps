@@ -42,7 +42,7 @@ describe("ClubService.listClubs", () => {
   it("should return all clubs from the database", async () => {
     const fakeClubs = [
       {
-        id: "club-1",
+        id: "company-1",
         name: "Gym A",
         slug: "gym-a",
         address: null,
@@ -71,7 +71,7 @@ describe("ClubService.updateClub", () => {
     mockGetPool.mockReturnValue(pool);
 
     await expect(
-      ClubService.updateClub("club-1", { slug: "taken-slug" }),
+      ClubService.updateClub("company-1", { slug: "taken-slug" }),
     ).rejects.toMatchObject({ statusCode: 409 });
   });
 
@@ -79,7 +79,7 @@ describe("ClubService.updateClub", () => {
     mockGetPool.mockReturnValue(makeMockPool());
 
     await expect(
-      ClubService.updateClub("club-1", { slug: "INVALID SLUG!" }),
+      ClubService.updateClub("company-1", { slug: "INVALID SLUG!" }),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
@@ -98,7 +98,7 @@ describe("ClubService.updateClub", () => {
 
   it("should return updated club on success", async () => {
     const updatedClub = {
-      id: "club-1",
+      id: "company-1",
       name: "New Name",
       slug: "new-slug",
       address: null,
@@ -112,7 +112,7 @@ describe("ClubService.updateClub", () => {
       .mockResolvedValueOnce({ rows: [updatedClub] }); // UPDATE
     mockGetPool.mockReturnValue(pool);
 
-    const result = await ClubService.updateClub("club-1", {
+    const result = await ClubService.updateClub("company-1", {
       slug: "new-slug",
       name: "New Name",
     });
@@ -146,7 +146,7 @@ describe("ClubService.suspendClub", () => {
     const client = makeMockClient();
     client.query
       .mockResolvedValueOnce({ rows: [] }) // BEGIN
-      .mockResolvedValueOnce({ rows: [{ id: "club-1" }] }) // UPDATE clubs
+      .mockResolvedValueOnce({ rows: [{ id: "company-1" }] }) // UPDATE clubs
       .mockResolvedValueOnce({ rows: [] }) // UPDATE users
       .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
@@ -154,7 +154,7 @@ describe("ClubService.suspendClub", () => {
     (pool.connect as jest.Mock).mockResolvedValue(client);
     mockGetPool.mockReturnValue(pool);
 
-    await expect(ClubService.suspendClub("club-1")).resolves.toBeUndefined();
+    await expect(ClubService.suspendClub("company-1")).resolves.toBeUndefined();
 
     // Verify users were set to inactive
     const updateUsersCall = client.query.mock.calls.find(
@@ -187,7 +187,7 @@ describe("RBAC: non-super_admin access to /api/clubs → HTTP 403", () => {
   it("should return HTTP 403 when role is member", () => {
     const user: JwtPayload = {
       userId: "user-1",
-      clubId: "club-1",
+      companyId: "company-1",
       role: "member",
       exp: 9999999999,
     };
@@ -208,7 +208,7 @@ describe("RBAC: non-super_admin access to /api/clubs → HTTP 403", () => {
   it("should return HTTP 403 when role is trainer", () => {
     const user: JwtPayload = {
       userId: "user-2",
-      clubId: "club-1",
+      companyId: "company-1",
       role: "trainer",
       exp: 9999999999,
     };
@@ -229,7 +229,7 @@ describe("RBAC: non-super_admin access to /api/clubs → HTTP 403", () => {
   it("should return HTTP 403 when role is club_owner", () => {
     const user: JwtPayload = {
       userId: "user-3",
-      clubId: "club-1",
+      companyId: "company-1",
       role: "club_owner",
       exp: 9999999999,
     };
@@ -250,7 +250,7 @@ describe("RBAC: non-super_admin access to /api/clubs → HTTP 403", () => {
   it("should call next() when role is super_admin", () => {
     const user: JwtPayload = {
       userId: "admin-1",
-      clubId: null,
+      companyId: null,
       role: "super_admin",
       exp: 9999999999,
     };
@@ -268,3 +268,4 @@ describe("RBAC: non-super_admin access to /api/clubs → HTTP 403", () => {
     expect(res["status"]).not.toHaveBeenCalled();
   });
 });
+

@@ -43,12 +43,12 @@ const actionArb = fc.constantFrom<"publish" | "subscribe">(
 );
 
 // Build a topic that looks like a real fitsense topic
-const topicArb = (clubId: string, userId: string) =>
+const topicArb = (companyId: string, userId: string) =>
   fc.oneof(
-    fc.constant(`fitsense/${clubId}/${userId}/hr`),
-    fc.constant(`fitsense/${clubId}/${userId}/alerts`),
-    fc.constant(`fitsense/${clubId}/#`),
-    fc.constant(`fitsense/${clubId}/+/alerts`),
+    fc.constant(`fitsense/${companyId}/${userId}/hr`),
+    fc.constant(`fitsense/${companyId}/${userId}/alerts`),
+    fc.constant(`fitsense/${companyId}/#`),
+    fc.constant(`fitsense/${companyId}/+/alerts`),
     fc.constant(`fitsense/#`),
     // arbitrary other club/user combos
     fc.tuple(fc.uuid(), fc.uuid()).map(([c, u]) => `fitsense/${c}/${u}/hr`),
@@ -63,9 +63,9 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("member: hanya boleh publish ke topik hr miliknya sendiri", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, (clubId, userId) => {
-        const ownHr = `fitsense/${clubId}/${userId}/hr`;
-        return checkAcl("member", userId, clubId, ownHr, "publish") === true;
+      fc.property(uuidArb, uuidArb, (companyId, userId) => {
+        const ownHr = `fitsense/${companyId}/${userId}/hr`;
+        return checkAcl("member", userId, companyId, ownHr, "publish") === true;
       }),
       { numRuns: 100 },
     );
@@ -73,10 +73,10 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("member: tidak boleh publish ke topik hr milik user lain", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, uuidArb, (clubId, userId, otherId) => {
+      fc.property(uuidArb, uuidArb, uuidArb, (companyId, userId, otherId) => {
         fc.pre(userId !== otherId);
-        const otherHr = `fitsense/${clubId}/${otherId}/hr`;
-        return checkAcl("member", userId, clubId, otherHr, "publish") === false;
+        const otherHr = `fitsense/${companyId}/${otherId}/hr`;
+        return checkAcl("member", userId, companyId, otherHr, "publish") === false;
       }),
       { numRuns: 100 },
     );
@@ -84,10 +84,10 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("member: tidak boleh publish ke topik alerts (miliknya sendiri maupun orang lain)", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, (clubId, userId) => {
-        const ownAlerts = `fitsense/${clubId}/${userId}/alerts`;
+      fc.property(uuidArb, uuidArb, (companyId, userId) => {
+        const ownAlerts = `fitsense/${companyId}/${userId}/alerts`;
         return (
-          checkAcl("member", userId, clubId, ownAlerts, "publish") === false
+          checkAcl("member", userId, companyId, ownAlerts, "publish") === false
         );
       }),
       { numRuns: 100 },
@@ -96,9 +96,9 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("member: boleh subscribe ke topik hr miliknya sendiri", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, (clubId, userId) => {
-        const ownHr = `fitsense/${clubId}/${userId}/hr`;
-        return checkAcl("member", userId, clubId, ownHr, "subscribe") === true;
+      fc.property(uuidArb, uuidArb, (companyId, userId) => {
+        const ownHr = `fitsense/${companyId}/${userId}/hr`;
+        return checkAcl("member", userId, companyId, ownHr, "subscribe") === true;
       }),
       { numRuns: 100 },
     );
@@ -106,10 +106,10 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("member: boleh subscribe ke topik alerts miliknya sendiri", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, (clubId, userId) => {
-        const ownAlerts = `fitsense/${clubId}/${userId}/alerts`;
+      fc.property(uuidArb, uuidArb, (companyId, userId) => {
+        const ownAlerts = `fitsense/${companyId}/${userId}/alerts`;
         return (
-          checkAcl("member", userId, clubId, ownAlerts, "subscribe") === true
+          checkAcl("member", userId, companyId, ownAlerts, "subscribe") === true
         );
       }),
       { numRuns: 100 },
@@ -118,13 +118,13 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("member: tidak boleh subscribe ke topik hr atau alerts milik user lain", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, uuidArb, (clubId, userId, otherId) => {
+      fc.property(uuidArb, uuidArb, uuidArb, (companyId, userId, otherId) => {
         fc.pre(userId !== otherId);
-        const otherHr = `fitsense/${clubId}/${otherId}/hr`;
-        const otherAlerts = `fitsense/${clubId}/${otherId}/alerts`;
+        const otherHr = `fitsense/${companyId}/${otherId}/hr`;
+        const otherAlerts = `fitsense/${companyId}/${otherId}/alerts`;
         return (
-          checkAcl("member", userId, clubId, otherHr, "subscribe") === false &&
-          checkAcl("member", userId, clubId, otherAlerts, "subscribe") === false
+          checkAcl("member", userId, companyId, otherHr, "subscribe") === false &&
+          checkAcl("member", userId, companyId, otherAlerts, "subscribe") === false
         );
       }),
       { numRuns: 100 },
@@ -140,14 +140,14 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
         uuidArb,
         uuidArb,
         actionArb,
-        (clubId, userId, otherId, _action) => {
+        (companyId, userId, otherId, _action) => {
           const topics = [
-            `fitsense/${clubId}/${userId}/hr`,
-            `fitsense/${clubId}/${userId}/alerts`,
-            `fitsense/${clubId}/#`,
+            `fitsense/${companyId}/${userId}/hr`,
+            `fitsense/${companyId}/${userId}/alerts`,
+            `fitsense/${companyId}/#`,
           ];
           return topics.every(
-            (t) => checkAcl("trainer", userId, clubId, t, "publish") === false,
+            (t) => checkAcl("trainer", userId, companyId, t, "publish") === false,
           );
         },
       ),
@@ -157,14 +157,14 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("club_owner: deny semua publish", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, (clubId, userId) => {
+      fc.property(uuidArb, uuidArb, (companyId, userId) => {
         const topics = [
-          `fitsense/${clubId}/${userId}/hr`,
-          `fitsense/${clubId}/${userId}/alerts`,
-          `fitsense/${clubId}/#`,
+          `fitsense/${companyId}/${userId}/hr`,
+          `fitsense/${companyId}/${userId}/alerts`,
+          `fitsense/${companyId}/#`,
         ];
         return topics.every(
-          (t) => checkAcl("club_owner", userId, clubId, t, "publish") === false,
+          (t) => checkAcl("club_owner", userId, companyId, t, "publish") === false,
         );
       }),
       { numRuns: 100 },
@@ -173,12 +173,12 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("trainer: boleh subscribe ke fitsense/{club_id}/# (topik dalam club sendiri)", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, uuidArb, (clubId, userId, memberId) => {
-        const hrTopic = `fitsense/${clubId}/${memberId}/hr`;
-        const alertsTopic = `fitsense/${clubId}/${memberId}/alerts`;
+      fc.property(uuidArb, uuidArb, uuidArb, (companyId, userId, memberId) => {
+        const hrTopic = `fitsense/${companyId}/${memberId}/hr`;
+        const alertsTopic = `fitsense/${companyId}/${memberId}/alerts`;
         return (
-          checkAcl("trainer", userId, clubId, hrTopic, "subscribe") === true &&
-          checkAcl("trainer", userId, clubId, alertsTopic, "subscribe") === true
+          checkAcl("trainer", userId, companyId, hrTopic, "subscribe") === true &&
+          checkAcl("trainer", userId, companyId, alertsTopic, "subscribe") === true
         );
       }),
       { numRuns: 100 },
@@ -192,11 +192,11 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
         uuidArb,
         uuidArb,
         uuidArb,
-        (clubId, otherClubId, userId, memberId) => {
-          fc.pre(clubId !== otherClubId);
-          const otherTopic = `fitsense/${otherClubId}/${memberId}/hr`;
+        (companyId, othercompanyId, userId, memberId) => {
+          fc.pre(companyId !== othercompanyId);
+          const otherTopic = `fitsense/${othercompanyId}/${memberId}/hr`;
           return (
-            checkAcl("trainer", userId, clubId, otherTopic, "subscribe") ===
+            checkAcl("trainer", userId, companyId, otherTopic, "subscribe") ===
             false
           );
         },
@@ -207,10 +207,10 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("club_owner: boleh subscribe ke fitsense/{club_id}/# (topik dalam club sendiri)", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, uuidArb, (clubId, userId, memberId) => {
-        const hrTopic = `fitsense/${clubId}/${memberId}/hr`;
+      fc.property(uuidArb, uuidArb, uuidArb, (companyId, userId, memberId) => {
+        const hrTopic = `fitsense/${companyId}/${memberId}/hr`;
         return (
-          checkAcl("club_owner", userId, clubId, hrTopic, "subscribe") === true
+          checkAcl("club_owner", userId, companyId, hrTopic, "subscribe") === true
         );
       }),
       { numRuns: 100 },
@@ -221,15 +221,15 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("super_admin: deny semua publish", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, uuidArb, (clubId, userId, memberId) => {
+      fc.property(uuidArb, uuidArb, uuidArb, (companyId, userId, memberId) => {
         const topics = [
-          `fitsense/${clubId}/${memberId}/hr`,
-          `fitsense/${clubId}/${memberId}/alerts`,
+          `fitsense/${companyId}/${memberId}/hr`,
+          `fitsense/${companyId}/${memberId}/alerts`,
           `fitsense/#`,
         ];
         return topics.every(
           (t) =>
-            checkAcl("super_admin", userId, clubId, t, "publish") === false,
+            checkAcl("super_admin", userId, companyId, t, "publish") === false,
         );
       }),
       { numRuns: 100 },
@@ -243,16 +243,16 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
         uuidArb,
         uuidArb,
         uuidArb,
-        (clubId, userId, c, u) => {
+        (companyId, userId, c, u) => {
           const topics = [
             `fitsense/${c}/${u}/hr`,
             `fitsense/${c}/${u}/alerts`,
-            `fitsense/${clubId}/#`,
+            `fitsense/${companyId}/#`,
             `fitsense/#`,
           ];
           return topics.every(
             (t) =>
-              checkAcl("super_admin", userId, clubId, t, "subscribe") === true,
+              checkAcl("super_admin", userId, companyId, t, "subscribe") === true,
           );
         },
       ),
@@ -264,10 +264,10 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("ml_service: boleh publish ke fitsense/{club_id}/{user_id}/alerts", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, (clubId, userId) => {
-        const alertsTopic = `fitsense/${clubId}/${userId}/alerts`;
+      fc.property(uuidArb, uuidArb, (companyId, userId) => {
+        const alertsTopic = `fitsense/${companyId}/${userId}/alerts`;
         return (
-          checkAcl("ml_service", userId, clubId, alertsTopic, "publish") ===
+          checkAcl("ml_service", userId, companyId, alertsTopic, "publish") ===
           true
         );
       }),
@@ -277,10 +277,10 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("ml_service: tidak boleh publish ke topik hr", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, (clubId, userId) => {
-        const hrTopic = `fitsense/${clubId}/${userId}/hr`;
+      fc.property(uuidArb, uuidArb, (companyId, userId) => {
+        const hrTopic = `fitsense/${companyId}/${userId}/hr`;
         return (
-          checkAcl("ml_service", userId, clubId, hrTopic, "publish") === false
+          checkAcl("ml_service", userId, companyId, hrTopic, "publish") === false
         );
       }),
       { numRuns: 100 },
@@ -289,11 +289,11 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("ml_service: tidak boleh publish ke topik alerts milik user lain", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, uuidArb, (clubId, userId, otherId) => {
+      fc.property(uuidArb, uuidArb, uuidArb, (companyId, userId, otherId) => {
         fc.pre(userId !== otherId);
-        const otherAlerts = `fitsense/${clubId}/${otherId}/alerts`;
+        const otherAlerts = `fitsense/${companyId}/${otherId}/alerts`;
         return (
-          checkAcl("ml_service", userId, clubId, otherAlerts, "publish") ===
+          checkAcl("ml_service", userId, companyId, otherAlerts, "publish") ===
           false
         );
       }),
@@ -303,16 +303,16 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
 
   it("ml_service: deny semua subscribe", () => {
     fc.assert(
-      fc.property(uuidArb, uuidArb, uuidArb, (clubId, userId, memberId) => {
+      fc.property(uuidArb, uuidArb, uuidArb, (companyId, userId, memberId) => {
         const topics = [
-          `fitsense/${clubId}/${memberId}/hr`,
-          `fitsense/${clubId}/${memberId}/alerts`,
-          `fitsense/${clubId}/#`,
+          `fitsense/${companyId}/${memberId}/hr`,
+          `fitsense/${companyId}/${memberId}/alerts`,
+          `fitsense/${companyId}/#`,
           `fitsense/#`,
         ];
         return topics.every(
           (t) =>
-            checkAcl("ml_service", userId, clubId, t, "subscribe") === false,
+            checkAcl("ml_service", userId, companyId, t, "subscribe") === false,
         );
       }),
       { numRuns: 100 },
@@ -328,13 +328,14 @@ describe("Property 7: ACL MQTT — Enforcement Komprehensif", () => {
         uuidArb,
         uuidArb,
         actionArb,
-        (clubId, userId, memberId, action) => {
-          const topic = `fitsense/${clubId}/${memberId}/hr`;
+        (companyId, userId, memberId, action) => {
+          const topic = `fitsense/${companyId}/${memberId}/hr`;
           const act = action as "publish" | "subscribe";
-          return checkAcl("unknown_role", userId, clubId, topic, act) === false;
+          return checkAcl("unknown_role", userId, companyId, topic, act) === false;
         },
       ),
       { numRuns: 100 },
     );
   });
 });
+

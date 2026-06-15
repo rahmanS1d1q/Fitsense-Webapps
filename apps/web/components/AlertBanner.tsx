@@ -1,6 +1,5 @@
 "use client";
-
-import React, { useEffect, useState } from "react";
+import React from "react";
 
 export interface Alert {
   id: string;
@@ -13,53 +12,53 @@ export interface Alert {
 
 interface AlertBannerProps {
   alerts: Alert[];
-  onDismiss?: (id: string) => void;
+  onDismiss: (id: string) => void;
 }
 
-/**
- * Displays prominent alert notifications.
- * Red for CRITICAL, yellow for WARNING.
- * Requirements: 13.4
- */
 export default function AlertBanner({ alerts, onDismiss }: AlertBannerProps) {
   if (alerts.length === 0) return null;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-        marginBottom: 16,
-      }}
-    >
-      {alerts.map((alert) => (
-        <div
-          key={alert.id}
-          role="alert"
-          style={{
-            padding: "12px 16px",
-            borderRadius: 8,
-            backgroundColor: alert.type === "CRITICAL" ? "#fee2e2" : "#fef9c3",
-            borderLeft: `4px solid ${alert.type === "CRITICAL" ? "#dc2626" : "#ca8a04"}`,
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-          }}
-        >
-          <span
+    <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
+      {alerts.map((alert) => {
+        const isCritical = alert.type === "CRITICAL";
+        return (
+          <div
+            key={alert.id}
             style={{
-              fontWeight: 700,
-              color: alert.type === "CRITICAL" ? "#b91c1c" : "#a16207",
-              minWidth: 80,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              borderRadius: 10,
+              background: isCritical ? "#fef2f2" : "#fffbeb",
+              border: `1px solid ${isCritical ? "#fecaca" : "#fde68a"}`,
+              animation: "slideIn 0.3s ease",
             }}
           >
-            {alert.type}
-          </span>
-          <span style={{ flex: 1 }}>
-            <strong>{alert.memberName}</strong>: {alert.message}
-          </span>
-          {onDismiss && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>{isCritical ? "🚨" : "⚠️"}</span>
+              <div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: isCritical ? "#b91c1c" : "#92400e",
+                  }}
+                >
+                  {alert.type} — {alert.memberName}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: isCritical ? "#dc2626" : "#a16207",
+                    marginTop: 2,
+                  }}
+                >
+                  {alert.message}
+                </div>
+              </div>
+            </div>
             <button
               onClick={() => onDismiss(alert.id)}
               style={{
@@ -67,15 +66,16 @@ export default function AlertBanner({ alerts, onDismiss }: AlertBannerProps) {
                 border: "none",
                 cursor: "pointer",
                 fontSize: 18,
-                color: "#6b7280",
+                color: "#9ca3af",
+                padding: "0 4px",
               }}
-              aria-label="Tutup notifikasi"
+              aria-label="Dismiss alert"
             >
               ×
             </button>
-          )}
-        </div>
-      ))}
+          </div>
+        );
+      })}
     </div>
   );
 }

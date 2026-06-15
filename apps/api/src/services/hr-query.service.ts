@@ -20,7 +20,7 @@ export interface HRDataRow {
 }
 
 export interface HRQueryParams {
-  clubId: string;
+  companyId: string;
   userId: string;
   from: string;
   to: string;
@@ -42,7 +42,7 @@ function isValidIso8601(dateStr: string): boolean {
 export async function queryHRHistory(
   params: HRQueryParams,
 ): Promise<HRDataRow[]> {
-  const { clubId, userId, from, to, interval } = params;
+  const { companyId, userId, from, to, interval } = params;
 
   // Validate interval
   if (!VALID_INTERVALS.includes(interval as HRInterval)) {
@@ -96,12 +96,12 @@ export async function queryHRHistory(
   });
   const queryApi = client.getQueryApi(config.influx.org);
 
-  // Always include club_id and user_id filters for tenant isolation
+  // Always include company_id and user_id filters for tenant isolation
   const fluxQuery = `
     from(bucket: "${config.influx.bucket}")
       |> range(start: ${new Date(from).toISOString()}, stop: ${new Date(to).toISOString()})
       |> filter(fn: (r) => r["_measurement"] == "hr_data")
-      |> filter(fn: (r) => r["club_id"] == "${clubId}")
+      |> filter(fn: (r) => r["company_id"] == "${companyId}")
       |> filter(fn: (r) => r["user_id"] == "${userId}")
       |> filter(fn: (r) => r["_field"] == "hr")
       |> aggregateWindow(every: ${interval}, fn: mean, createEmpty: false)
@@ -126,3 +126,4 @@ export async function queryHRHistory(
 
   return rows;
 }
+

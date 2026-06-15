@@ -28,7 +28,7 @@ export function validateSlug(slug: string): boolean {
 export async function listClubs(): Promise<Club[]> {
   const pool = getPool();
   const result = await pool.query(
-    "SELECT id, name, slug, address, phone, status, created_at FROM clubs ORDER BY created_at DESC",
+    "SELECT id, name, slug, address, phone, status, created_at FROM companies ORDER BY created_at DESC",
   );
   return result.rows as Club[];
 }
@@ -54,7 +54,7 @@ export async function updateClub(
   // Check slug uniqueness if slug is being updated
   if (data.slug !== undefined) {
     const slugCheck = await pool.query(
-      "SELECT id FROM clubs WHERE slug = $1 AND id != $2",
+      "SELECT id FROM companies WHERE slug = $1 AND id != $2",
       [data.slug, clubId],
     );
     if (slugCheck.rows.length > 0) {
@@ -97,7 +97,7 @@ export async function updateClub(
 
   values.push(clubId);
   const result = await pool.query(
-    `UPDATE clubs SET ${fields.join(", ")} WHERE id = $${idx} RETURNING id, name, slug, address, phone, status, created_at`,
+    `UPDATE companies SET ${fields.join(", ")} WHERE id = $${idx} RETURNING id, name, slug, address, phone, status, created_at`,
     values,
   );
 
@@ -121,7 +121,7 @@ export async function suspendClub(clubId: string): Promise<void> {
 
     // Suspend the club
     const clubResult = await client.query(
-      "UPDATE clubs SET status = 'suspended' WHERE id = $1 RETURNING id",
+      "UPDATE companies SET status = 'suspended' WHERE id = $1 RETURNING id",
       [clubId],
     );
 
@@ -131,7 +131,7 @@ export async function suspendClub(clubId: string): Promise<void> {
 
     // Revoke access for all users in the club
     await client.query(
-      "UPDATE users SET status = 'inactive' WHERE club_id = $1",
+      "UPDATE users SET status = 'inactive' WHERE company_id = $1",
       [clubId],
     );
 
@@ -143,3 +143,4 @@ export async function suspendClub(clubId: string): Promise<void> {
     client.release();
   }
 }
+

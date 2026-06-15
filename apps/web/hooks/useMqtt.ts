@@ -35,14 +35,22 @@ async function fetchMqttToken(): Promise<string | null> {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("mqttToken", data.mqttToken);
-      sessionStorage.setItem(
-        "mqttTokenExp",
-        String(data.expiresAt ?? Date.now() + 30 * 60 * 1000),
-      );
+    const mqttToken: string = data.mqttToken;
+
+    // Decode expiry from JWT payload (base64)
+    let expMs = Date.now() + 30 * 60 * 1000; // default 30 min
+    try {
+      const payload = JSON.parse(atob(mqttToken.split(".")[1]));
+      if (payload.exp) expMs = payload.exp * 1000;
+    } catch {
+      // keep default
     }
-    return data.mqttToken as string;
+
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("mqttToken", mqttToken);
+      sessionStorage.setItem("mqttTokenExp", String(expMs));
+    }
+    return mqttToken;
   } catch {
     return null;
   }
@@ -182,3 +190,4 @@ export function useMqtt(options: UseMqttOptions = {}): UseMqttReturn {
 
   return { status, subscribe, unsubscribe, publish };
 }
+

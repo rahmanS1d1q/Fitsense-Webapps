@@ -206,3 +206,4 @@ describe("PasswordResetService.resetPassword", () => {
     ).rejects.toMatchObject({ statusCode: 410 });
   });
 });
+

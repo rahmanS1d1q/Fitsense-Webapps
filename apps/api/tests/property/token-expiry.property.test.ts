@@ -28,9 +28,9 @@ describe("Property 3: Token Login — Masa Berlaku", () => {
         fc.uuid(),
         fc.oneof(fc.uuid(), fc.constant(null)),
         fc.constantFrom("super_admin", "club_owner", "trainer", "member"),
-        (userId, clubId, role) => {
+        (userId, companyId, role) => {
           const before = Math.floor(Date.now() / 1000);
-          const token = generateJwt(userId, clubId, role);
+          const token = generateJwt(userId, companyId, role);
           const after = Math.floor(Date.now() / 1000);
 
           const decoded = jwt.decode(token) as { exp: number; iat: number };
@@ -64,9 +64,9 @@ describe("Property 3: Token Login — Masa Berlaku", () => {
         fc.uuid(),
         fc.oneof(fc.uuid(), fc.constant(null)),
         fc.constantFrom("super_admin", "club_owner", "trainer", "member"),
-        (userId, clubId, role) => {
+        (userId, companyId, role) => {
           const before = Math.floor(Date.now() / 1000);
-          const token = generateMqttToken(userId, clubId, role);
+          const token = generateMqttToken(userId, companyId, role);
           const after = Math.floor(Date.now() / 1000);
 
           const decoded = jwt.decode(token) as { exp: number; iat: number };
@@ -100,9 +100,9 @@ describe("Property 3: Token Login — Masa Berlaku", () => {
         fc.uuid(),
         fc.uuid(),
         fc.constantFrom("club_owner", "trainer", "member"),
-        (userId, clubId, role) => {
-          const jwtToken = generateJwt(userId, clubId, role);
-          const mqttToken = generateMqttToken(userId, clubId, role);
+        (userId, companyId, role) => {
+          const jwtToken = generateJwt(userId, companyId, role);
+          const mqttToken = generateMqttToken(userId, companyId, role);
 
           const jwtDecoded = jwt.decode(jwtToken) as {
             exp: number;
@@ -124,3 +124,4 @@ describe("Property 3: Token Login — Masa Berlaku", () => {
     );
   });
 });
+

@@ -2,37 +2,37 @@
 
 ## Services
 
-| Layer          | Technology                                                        |
-| -------------- | ----------------------------------------------------------------- |
-| Mobile App     | React Native (iOS + Android)                                      |
-| Web Dashboard  | Next.js 14 (App Router) + TypeScript                              |
-| API Server     | Node.js + Express + TypeScript                                    |
-| ML Service     | Python + FastAPI                                                  |
-| MQTT Broker    | EMQX 5                                                            |
+| Layer          | Technology                                                                |
+| -------------- | ------------------------------------------------------------------------- |
+| Mobile App     | React Native (iOS + Android)                                              |
+| Web Dashboard  | Next.js 14 (App Router) + TypeScript                                      |
+| API Server     | Node.js + Express + TypeScript                                            |
+| ML Service     | Python + FastAPI                                                          |
+| MQTT Broker    | EMQX 5                                                                    |
 | Time-series DB | InfluxDB v2 (bucket: `heartrate` 90 hari, `heartrate_aggregated` 2 tahun) |
-| Relational DB  | PostgreSQL 15                                                     |
-| Cache / Buffer | Redis 7                                                           |
-| Reverse Proxy  | NGINX (`:443` REST, `:8084` MQTT over WSS)                        |
-| Container      | Docker Compose                                                    |
-| Real-time Web  | mqtt.js via WebSocket                                             |
-| Monitoring     | Grafana                                                           |
+| Relational DB  | PostgreSQL 15                                                             |
+| Cache / Buffer | Redis 7                                                                   |
+| Reverse Proxy  | NGINX (`:443` REST, `:8084` MQTT over WSS)                                |
+| Container      | Docker Compose                                                            |
+| Real-time Web  | mqtt.js via WebSocket                                                     |
+| Monitoring     | Grafana                                                                   |
 
 ---
 
 ## Port Mapping
 
-| Service          | Port Internal | Port External (production) | Port External (test)  |
-| ---------------- | ------------- | -------------------------- | --------------------- |
-| NGINX            | —             | `:443` (REST), `:8084` (WSS) | —                   |
-| API Server       | `:3001`       | via NGINX                  | `:3002`               |
-| ML Service       | `:8000`       | tidak diekspos             | `:8001`               |
-| EMQX TCP         | `:1883`       | tidak diekspos (internal)  | `:1884`               |
-| EMQX WebSocket   | `:8083`       | via NGINX `:8084`          | `:8085`               |
-| EMQX TLS         | `:8883`       | `:8883` (Mobile App)       | —                     |
-| PostgreSQL       | `:5432`       | tidak diekspos             | `:5433`               |
-| InfluxDB         | `:8086`       | tidak diekspos             | `:8087`               |
-| Redis            | `:6379`       | tidak diekspos             | `:6380`               |
-| Grafana          | `:3000`       | `:3000`                    | —                     |
+| Service        | Port Internal | Port External (production)   | Port External (test) |
+| -------------- | ------------- | ---------------------------- | -------------------- |
+| NGINX          | —             | `:443` (REST), `:8084` (WSS) | —                    |
+| API Server     | `:3001`       | via NGINX                    | `:3002`              |
+| ML Service     | `:8000`       | tidak diekspos               | `:8001`              |
+| EMQX TCP       | `:1883`       | tidak diekspos (internal)    | `:1884`              |
+| EMQX WebSocket | `:8083`       | via NGINX `:8084`            | `:8085`              |
+| EMQX TLS       | `:8883`       | `:8883` (Mobile App)         | —                    |
+| PostgreSQL     | `:5432`       | tidak diekspos               | `:5433`              |
+| InfluxDB       | `:8086`       | tidak diekspos               | `:8087`              |
+| Redis          | `:6379`       | tidak diekspos               | `:6380`              |
+| Grafana        | `:3000`       | `:3000`                      | —                    |
 
 ---
 
@@ -40,54 +40,54 @@
 
 ### API Server (Node.js)
 
-| Library                    | Kegunaan                                              |
-| -------------------------- | ----------------------------------------------------- |
-| `express`                  | HTTP server dan routing                               |
-| `jsonwebtoken`             | JWT generation dan verification                       |
-| `bcrypt`                   | Password hashing                                      |
-| `pg`                       | PostgreSQL client                                     |
-| `@influxdata/influxdb-client` | Flux query dan write ke InfluxDB                   |
-| `ioredis`                  | Redis client                                          |
-| `mqtt`                     | MQTT client untuk subscribe internal ke EMQX          |
-| `nodemailer`               | Kirim email reset password                            |
-| `node-cron`                | Jadwal OrphanSessionJob (setiap 30 menit)             |
-| `fast-check`               | Property-based testing (dev)                          |
-| `jest` + `ts-jest`         | Unit test runner (dev)                                |
+| Library                       | Kegunaan                                     |
+| ----------------------------- | -------------------------------------------- |
+| `express`                     | HTTP server dan routing                      |
+| `jsonwebtoken`                | JWT generation dan verification              |
+| `bcrypt`                      | Password hashing                             |
+| `pg`                          | PostgreSQL client                            |
+| `@influxdata/influxdb-client` | Flux query dan write ke InfluxDB             |
+| `ioredis`                     | Redis client                                 |
+| `mqtt`                        | MQTT client untuk subscribe internal ke EMQX |
+| `nodemailer`                  | Kirim email reset password                   |
+| `node-cron`                   | Jadwal OrphanSessionJob (setiap 30 menit)    |
+| `fast-check`                  | Property-based testing (dev)                 |
+| `jest` + `ts-jest`            | Unit test runner (dev)                       |
 
 ### ML Service (Python)
 
-| Library           | Kegunaan                                                      |
-| ----------------- | ------------------------------------------------------------- |
-| `fastapi`         | HTTP framework                                                |
-| `uvicorn`         | ASGI server                                                   |
-| `pydantic`        | Request/response validation                                   |
-| `psycopg2-binary` | PostgreSQL client                                             |
-| `influxdb-client` | Flux query ke InfluxDB                                        |
-| `redis`           | Redis client untuk ZoneStateTracker dan AlertCooldownManager  |
-| `paho-mqtt`       | MQTT client untuk publish alerts ke EMQX `:1883`              |
-| `apscheduler`     | Jadwal downsampling harian (pukul 02.00 UTC)                  |
-| `hypothesis`      | Property-based testing (dev)                                  |
-| `pytest` + `pytest-asyncio` | Test runner (dev)                                   |
+| Library                     | Kegunaan                                                     |
+| --------------------------- | ------------------------------------------------------------ |
+| `fastapi`                   | HTTP framework                                               |
+| `uvicorn`                   | ASGI server                                                  |
+| `pydantic`                  | Request/response validation                                  |
+| `psycopg2-binary`           | PostgreSQL client                                            |
+| `influxdb-client`           | Flux query ke InfluxDB                                       |
+| `redis`                     | Redis client untuk ZoneStateTracker dan AlertCooldownManager |
+| `paho-mqtt`                 | MQTT client untuk publish alerts ke EMQX `:1883`             |
+| `apscheduler`               | Jadwal downsampling harian (pukul 02.00 UTC)                 |
+| `hypothesis`                | Property-based testing (dev)                                 |
+| `pytest` + `pytest-asyncio` | Test runner (dev)                                            |
 
 ### Web Dashboard (Next.js)
 
-| Library                  | Kegunaan                                      |
-| ------------------------ | --------------------------------------------- |
-| `mqtt`                   | MQTT over WebSocket untuk subscribe real-time |
-| `react-window`           | Virtualized list MemberList (maks 100 di DOM) |
-| `@tanstack/react-query`  | Data fetching dan caching REST API            |
-| `react-hook-form`        | Form handling (login, register, reset password) |
-| `zod`                    | Schema validation form                        |
+| Library                 | Kegunaan                                        |
+| ----------------------- | ----------------------------------------------- |
+| `mqtt`                  | MQTT over WebSocket untuk subscribe real-time   |
+| `react-window`          | Virtualized list MemberList (maks 100 di DOM)   |
+| `@tanstack/react-query` | Data fetching dan caching REST API              |
+| `react-hook-form`       | Form handling (login, register, reset password) |
+| `zod`                   | Schema validation form                          |
 
 ### Mobile App (React Native)
 
-| Library                                    | Kegunaan                               |
-| ------------------------------------------ | -------------------------------------- |
-| `react-native-ble-plx`                     | BLE scan dan koneksi sensor Coospo     |
-| `mqtt` / `@mqtt-client/react-native`       | MQTT publish HR data ke broker         |
-| `@react-native-async-storage/async-storage` | Simpan JWT, MQTT_Token, session_id    |
-| `react-hook-form`                          | Form login                             |
-| `zod`                                      | Schema validation                      |
+| Library                                     | Kegunaan                           |
+| ------------------------------------------- | ---------------------------------- |
+| `react-native-ble-plx`                      | BLE scan dan koneksi sensor Coospo |
+| `mqtt` / `@mqtt-client/react-native`        | MQTT publish HR data ke broker     |
+| `@react-native-async-storage/async-storage` | Simpan JWT, MQTT_Token, session_id |
+| `react-hook-form`                           | Form login                         |
+| `zod`                                       | Schema validation                  |
 
 ---
 
@@ -188,9 +188,9 @@ cd apps/ml && pytest tests/property/
 
 ## MQTT Routing
 
-- **Mobile App** → EMQX port `:8883` (MQTT over TLS, native MQTT client, tidak melalui NGINX)
+- **Sensor Coospo** → aplikasi mobile pihak ketiga → EMQX port `:1883` atau `:8883`
 - **Web Dashboard** → NGINX `:8084` → EMQX `:8083` (MQTT over WSS, browser mqtt.js)
 - **API Server** → EMQX `:1883` (MQTT internal, subscribe `fitsense/#` via MqttConsumer)
 - **ML Service** → EMQX `:1883` (MQTT internal, publish alerts via paho-mqtt)
 - **EMQX auth/ACL** → webhook ke API Server (`POST /api/mqtt/auth`, `POST /api/mqtt/acl`)
-- **MQTT topic pattern**: `fitsense/{club_id}/{user_id}/hr` dan `fitsense/{club_id}/{user_id}/alerts`
+- **MQTT topic pattern**: `fitsense/{company_id}/{user_id}/hr` dan `fitsense/{company_id}/{user_id}/alerts`

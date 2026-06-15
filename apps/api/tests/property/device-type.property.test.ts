@@ -73,3 +73,4 @@ describe("Property 6: Validasi Tipe Perangkat", () => {
     );
   });
 });
+

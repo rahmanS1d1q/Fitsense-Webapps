@@ -158,3 +158,4 @@ describe("ML Service down — data tetap masuk BatchWriter", () => {
     // BatchWriter addToBuffer is called regardless of ML Service status
   });
 });
+

@@ -11,15 +11,15 @@ import { queryHRHistory } from "../services/hr-query.service";
 const router = Router();
 
 /**
- * GET /api/clubs/:clubId/members/:userId/hr
+ * GET /api/clubs/:companyId/members/:userId/hr
  * Requirements: 11.1, 11.2, 11.3, 11.4, 11.5
  */
 router.get(
-  "/:clubId/members/:userId/hr",
+  "/:companyId/members/:userId/hr",
   authMiddleware,
   tenantMiddleware,
   async (req: Request, res: Response) => {
-    const { clubId, userId } = req.params;
+    const { companyId, userId } = req.params;
     const { from, to, interval } = req.query as Record<string, string>;
 
     if (!from || !to || !interval) {
@@ -32,7 +32,7 @@ router.get(
     }
 
     try {
-      const data = await queryHRHistory({ clubId, userId, from, to, interval });
+      const data = await queryHRHistory({ companyId, userId, from, to, interval });
       return res.json({ data });
     } catch (err: unknown) {
       const error = err as {
@@ -60,3 +60,4 @@ router.get(
 );
 
 export default router;
+

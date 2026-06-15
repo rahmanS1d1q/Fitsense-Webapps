@@ -9,14 +9,15 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "14.2.3",
+    "@hookform/resolvers": "^3.6.0",
+    "@tanstack/react-query": "^5.40.0",
+    "mqtt": "^5.5.0",
+    "next": "14.2.30",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "mqtt": "^5.5.0",
-    "react-window": "^1.8.10",
-    "@tanstack/react-query": "^5.40.0",
     "react-hook-form": "^7.51.5",
-    "@hookform/resolvers": "^3.6.0",
+    "react-window": "^1.8.10",
+    "recharts": "^3.8.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {

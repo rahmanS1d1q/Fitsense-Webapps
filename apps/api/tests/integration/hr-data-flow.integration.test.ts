@@ -67,10 +67,11 @@ describe("HR Data Flow — Integration (26.1)", () => {
   describe("BatchWriter buffer accumulation", () => {
     it("multiple HR data points can be accumulated in buffer", () => {
       // Test that the buffer key pattern is correct
-      const clubId = "club-uuid-1";
+      const companyId = "club-uuid-1";
       const userId = "user-uuid-1";
-      const bufferKey = `hr_buffer:${clubId}:${userId}`;
+      const bufferKey = `hr_buffer:${companyId}:${userId}`;
       expect(bufferKey).toBe("hr_buffer:club-uuid-1:user-uuid-1");
     });
   });
 });
+

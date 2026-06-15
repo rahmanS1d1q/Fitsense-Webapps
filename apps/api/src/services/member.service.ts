@@ -4,38 +4,47 @@ import { getRedis } from "../db/redis";
 
 export interface Member {
   id: string;
-  club_id: string;
-  name: string;
+  company_id: string;
+  first_name: string;
+  last_name: string;
   email: string;
   role: string;
   age: number | null;
   gender: string | null;
+  height: number | null;
+  weight: number | null;
   status: "active" | "inactive";
   created_at: Date;
 }
 
 export interface CreateMemberInput {
-  name: string;
+  firstName: string;
+  lastName?: string;
   email: string;
   password: string;
   age?: number;
   gender?: string;
+  height?: number;
+  weight?: number;
   role?: "member" | "trainer";
 }
 
 export interface UpdateMemberInput {
-  name?: string;
+  firstName?: string;
+  lastName?: string;
   age?: number;
   gender?: string;
+  height?: number;
+  weight?: number;
 }
 
 /**
- * Creates a new member account linked to the given club.
- * Email must be globally unique across all clubs.
+ * Creates a new member account linked to the given company.
+ * Email must be globally unique across all companies.
  * Requirements: 3.1, 3.7
  */
 export async function createMember(
-  clubId: string,
+  companyId: string,
   data: CreateMemberInput,
 ): Promise<Member> {
   const pool = getPool();
@@ -47,61 +56,88 @@ export async function createMember(
   if (emailCheck.rows.length > 0) {
     throw Object.assign(
       new Error("Email sudah digunakan oleh pengguna lain."),
-      { statusCode: 409, code: "EMAIL_CONFLICT", field: "email" },
+      {
+        statusCode: 409,
+        code: "EMAIL_CONFLICT",
+        field: "email",
+      },
     );
   }
 
   const passwordHash = await bcrypt.hash(data.password, 10);
   const role = data.role ?? "member";
 
-  const result = await pool.query(
-    `INSERT INTO users (club_id, name, email, password_hash, role, age, gender)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, club_id, name, email, role, age, gender, status, created_at`,
-    [
-      clubId,
-      data.name,
-      data.email,
-      passwordHash,
-      role,
-      data.age ?? null,
-      data.gender ?? null,
-    ],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
 
-  return result.rows[0] as Member;
+    // Insert user — role stored in users table (NOT NULL in schema)
+    const userResult = await client.query(
+      `INSERT INTO users (first_name, last_name, email, password_hash, age, gender, height, weight, role, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')
+       RETURNING id, first_name, last_name, email, age, gender, height, weight, status, created_at`,
+      [
+        data.firstName,
+        data.lastName || data.firstName,
+        data.email,
+        passwordHash,
+        data.age ?? null,
+        data.gender ?? null,
+        data.height ?? null,
+        data.weight ?? null,
+        role,
+      ],
+    );
+    const user = userResult.rows[0];
+
+    // Also link to company via users_companies for RBAC
+    await client.query(
+      "INSERT INTO users_companies (user_id, company_id, role) VALUES ($1, $2, $3)",
+      [user.id, companyId, role],
+    );
+
+    await client.query("COMMIT");
+    return { ...user, company_id: companyId, role } as Member;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**
- * Returns all active members in the given club.
- * Requirements: 3.3
+ * Returns all active members in the given company.
  */
-export async function listMembers(clubId: string): Promise<Member[]> {
+export async function listMembers(companyId: string): Promise<Member[]> {
   const pool = getPool();
   const result = await pool.query(
-    `SELECT id, club_id, name, email, role, age, gender, status, created_at
-     FROM users
-     WHERE club_id = $1 AND status = 'active'
-     ORDER BY created_at DESC`,
-    [clubId],
+    `SELECT u.id, uc.company_id, u.first_name, u.last_name, u.email, uc.role,
+            u.age, u.gender, u.height, u.weight, u.status, u.created_at
+     FROM users u
+     JOIN users_companies uc ON uc.user_id = u.id
+     WHERE uc.company_id = $1 AND u.status = 'active'
+     ORDER BY u.created_at DESC`,
+    [companyId],
   );
   return result.rows as Member[];
 }
 
 /**
- * Returns a single member by userId within the given club.
- * Requirements: 3.4
+ * Returns a single member by userId within the given company.
  */
 export async function getMember(
-  clubId: string,
+  companyId: string,
   userId: string,
 ): Promise<Member> {
   const pool = getPool();
   const result = await pool.query(
-    `SELECT id, club_id, name, email, role, age, gender, status, created_at
-     FROM users
-     WHERE id = $1 AND club_id = $2`,
-    [userId, clubId],
+    `SELECT u.id, uc.company_id, u.first_name, u.last_name, u.email, uc.role,
+            u.age, u.gender, u.height, u.weight, u.status, u.created_at
+     FROM users u
+     JOIN users_companies uc ON uc.user_id = u.id
+     WHERE u.id = $1 AND uc.company_id = $2`,
+    [userId, companyId],
   );
   if (result.rows.length === 0) {
     throw Object.assign(new Error("Member not found"), { statusCode: 404 });
@@ -111,10 +147,9 @@ export async function getMember(
 
 /**
  * Updates a member's profile data.
- * Requirements: 3.5
  */
 export async function updateMember(
-  clubId: string,
+  companyId: string,
   userId: string,
   data: UpdateMemberInput,
 ): Promise<Member> {
@@ -124,9 +159,13 @@ export async function updateMember(
   const values: unknown[] = [];
   let idx = 1;
 
-  if (data.name !== undefined) {
-    fields.push(`name = $${idx++}`);
-    values.push(data.name);
+  if (data.firstName !== undefined) {
+    fields.push(`first_name = $${idx++}`);
+    values.push(data.firstName);
+  }
+  if (data.lastName !== undefined) {
+    fields.push(`last_name = $${idx++}`);
+    values.push(data.lastName);
   }
   if (data.age !== undefined) {
     fields.push(`age = $${idx++}`);
@@ -136,16 +175,27 @@ export async function updateMember(
     fields.push(`gender = $${idx++}`);
     values.push(data.gender);
   }
+  if (data.height !== undefined) {
+    fields.push(`height = $${idx++}`);
+    values.push(data.height);
+  }
+  if (data.weight !== undefined) {
+    fields.push(`weight = $${idx++}`);
+    values.push(data.weight);
+  }
 
   if (fields.length === 0) {
     throw Object.assign(new Error("No fields to update"), { statusCode: 400 });
   }
 
-  values.push(userId, clubId);
+  // Always update updated_at
+  fields.push(`updated_at = NOW()`);
+  values.push(userId);
+
   const result = await pool.query(
     `UPDATE users SET ${fields.join(", ")}
-     WHERE id = $${idx} AND club_id = $${idx + 1}
-     RETURNING id, club_id, name, email, role, age, gender, status, created_at`,
+     WHERE id = $${idx}
+     RETURNING id, first_name, last_name, email, age, gender, height, weight, status, created_at`,
     values,
   );
 
@@ -153,29 +203,33 @@ export async function updateMember(
     throw Object.assign(new Error("Member not found"), { statusCode: 404 });
   }
 
-  return result.rows[0] as Member;
+  const user = result.rows[0];
+  return { ...user, company_id: companyId, role: "member" } as Member;
 }
 
 /**
  * Deactivates a member account and invalidates all active tokens.
- * Requirements: 3.6
  */
 export async function deactivateMember(
-  clubId: string,
+  companyId: string,
   userId: string,
 ): Promise<void> {
   const pool = getPool();
 
-  const result = await pool.query(
-    "UPDATE users SET status = 'inactive' WHERE id = $1 AND club_id = $2 RETURNING id",
-    [userId, clubId],
+  // Verify member belongs to company
+  const check = await pool.query(
+    "SELECT id FROM users_companies WHERE user_id = $1 AND company_id = $2",
+    [userId, companyId],
   );
-
-  if (result.rows.length === 0) {
+  if (check.rows.length === 0) {
     throw Object.assign(new Error("Member not found"), { statusCode: 404 });
   }
 
-  // Invalidate all active tokens by deleting refresh token from Redis
+  await pool.query(
+    "UPDATE users SET status = 'inactive', updated_at = NOW() WHERE id = $1",
+    [userId],
+  );
+
   const redis = getRedis();
   await redis.del(`refresh_token:${userId}`);
 }
