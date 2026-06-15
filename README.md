@@ -24,6 +24,7 @@ Data HR dikirim langsung dari sensor Coospo melalui aplikasi mobile pihak ketiga
 - [Arsitektur](#arsitektur)
 - [Struktur Folder](#struktur-folder)
 - [Integrasi Sensor Coospo](#integrasi-sensor-coospo)
+- [Cara Subscribe Data MQTT](#cara-subscribe-data-mqtt)
 - [Prasyarat](#prasyarat)
 - [Cara Menjalankan](#cara-menjalankan)
 - [Test Manual via API](#test-manual-via-api)
@@ -237,6 +238,418 @@ Headers: Authorization: Bearer {jwt}
 
 # Response berisi session.id — gunakan sebagai session_id di payload MQTT
 ```
+
+---
+
+## Cara Subscribe Data MQTT
+
+Web Dashboard dan aplikasi lain dapat subscribe untuk menerima data HR real-time dan alerts.
+
+### 1. Subscribe via Web Dashboard (MQTT over WebSocket)
+
+Web Dashboard menggunakan `mqtt.js` via WebSocket (WSS) untuk koneksi dari browser.
+
+**Connection Config:**
+
+| Parameter | Development             | Production              |
+| --------- | ----------------------- | ----------------------- |
+| Protocol  | `ws://`                 | `wss://`                |
+| Host      | `localhost`             | `yourdomain.com`        |
+| Port      | `8083`                  | `8084`                  |
+| Username  | MQTT_Token (dari login) | MQTT_Token (dari login) |
+| Password  | MQTT_Token (sama)       | MQTT_Token (sama)       |
+
+**Example Code (React/Next.js):**
+
+```typescript
+import mqtt from "mqtt";
+
+// Connect ke MQTT broker
+const client = mqtt.connect("ws://localhost:8083", {
+  username: mqttToken,
+  password: mqttToken,
+  clientId: `web_${userId}_${Date.now()}`,
+  clean: true,
+  reconnectPeriod: 5000,
+});
+
+// Subscribe berdasarkan role
+client.on("connect", () => {
+  console.log("Connected to MQTT broker");
+
+  // Trainer/Club Owner: Subscribe semua member di company
+  if (role === "trainer" || role === "club_owner") {
+    client.subscribe(`fitsense/${companyId}/#`, (err) => {
+      if (err) console.error("Subscribe error:", err);
+    });
+  }
+
+  // Member: Subscribe data diri sendiri
+  if (role === "member") {
+    client.subscribe(`fitsense/${companyId}/${userId}/hr`, (err) => {
+      if (err) console.error("Subscribe error:", err);
+    });
+    client.subscribe(`fitsense/${companyId}/${userId}/alerts`, (err) => {
+      if (err) console.error("Subscribe error:", err);
+    });
+  }
+});
+
+// Handle incoming messages
+client.on("message", (topic, message) => {
+  const payload = JSON.parse(message.toString());
+
+  if (topic.endsWith("/hr")) {
+    // Handle HR data
+    console.log("HR Data:", payload);
+    // Update UI dengan data HR real-time
+  }
+
+  if (topic.endsWith("/alerts")) {
+    // Handle alerts
+    console.log("Alert:", payload);
+    // Tampilkan notifikasi ke user
+  }
+});
+
+// Handle errors
+client.on("error", (error) => {
+  console.error("MQTT Error:", error);
+});
+
+// Cleanup on unmount
+return () => {
+  client.end();
+};
+```
+
+---
+
+### 2. Subscribe via MQTT Explorer (Testing/Development)
+
+**Step-by-step:**
+
+1. **Download MQTT Explorer**: [mqtt-explorer.com](https://mqtt-explorer.com)
+
+2. **Create Connection**:
+   - Name: `FitSense Development`
+   - Protocol: `mqtt://`
+   - Host: `localhost`
+   - Port: `1883`
+
+3. **Authentication**:
+   - Username: `{mqttToken}` (dari response login)
+   - Password: `{mqttToken}` (sama dengan username)
+
+4. **Subscribe Topics**:
+
+   ```
+   # Subscribe semua data (super_admin atau testing)
+   fitsense/#
+
+   # Subscribe company tertentu (trainer/owner)
+   fitsense/{companyId}/#
+
+   # Subscribe member tertentu
+   fitsense/{companyId}/{userId}/#
+
+   # Subscribe hanya HR
+   fitsense/{companyId}/{userId}/hr
+
+   # Subscribe hanya alerts
+   fitsense/{companyId}/{userId}/alerts
+   ```
+
+5. **Click Connect** — data real-time akan muncul di panel kanan
+
+---
+
+### 3. Subscribe via Terminal (mosquitto_sub)
+
+**Install mosquitto client:**
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install mosquitto-clients
+
+# macOS
+brew install mosquitto
+
+# Windows
+# Download dari https://mosquitto.org/download/
+```
+
+**Subscribe commands:**
+
+```bash
+# Subscribe semua data company
+mosquitto_sub -h localhost -p 1883 \
+  -u "{mqttToken}" -P "{mqttToken}" \
+  -t "fitsense/{companyId}/#" \
+  -v
+
+# Subscribe data member tertentu
+mosquitto_sub -h localhost -p 1883 \
+  -u "{mqttToken}" -P "{mqttToken}" \
+  -t "fitsense/{companyId}/{userId}/hr" \
+  -v
+
+# Subscribe hanya alerts
+mosquitto_sub -h localhost -p 1883 \
+  -u "{mqttToken}" -P "{mqttToken}" \
+  -t "fitsense/{companyId}/{userId}/alerts" \
+  -v
+
+# Subscribe dengan pretty print JSON
+mosquitto_sub -h localhost -p 1883 \
+  -u "{mqttToken}" -P "{mqttToken}" \
+  -t "fitsense/{companyId}/#" \
+  -F '@Y-@m-@d @H:@M:@S | %t | %p' \
+  | jq '.'
+```
+
+**Flags:**
+
+- `-h` : Hostname/IP broker
+- `-p` : Port broker
+- `-u` : Username (MQTT_Token)
+- `-P` : Password (MQTT_Token)
+- `-t` : Topic pattern
+- `-v` : Verbose (tampilkan topic + payload)
+- `-F` : Format output
+
+---
+
+### 4. Subscribe via Python (paho-mqtt)
+
+**Install:**
+
+```bash
+pip install paho-mqtt
+```
+
+**Example Code:**
+
+```python
+import paho.mqtt.client as mqtt
+import json
+
+# Config
+BROKER = "localhost"
+PORT = 1883
+MQTT_TOKEN = "your-mqtt-token"
+COMPANY_ID = "your-company-id"
+USER_ID = "your-user-id"
+
+# Callback ketika connect
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print("Connected to MQTT broker")
+        # Subscribe topics
+        client.subscribe(f"fitsense/{COMPANY_ID}/#")
+        print(f"Subscribed to fitsense/{COMPANY_ID}/#")
+    else:
+        print(f"Connection failed with code {rc}")
+
+# Callback ketika terima message
+def on_message(client, userdata, msg):
+    topic = msg.topic
+    payload = json.loads(msg.payload.decode())
+
+    if topic.endswith('/hr'):
+        print(f"HR Data from {topic}:")
+        print(f"  HR: {payload['hr']} bpm")
+        print(f"  Session: {payload['session_id']}")
+        print(f"  Timestamp: {payload['timestamp']}")
+
+    elif topic.endswith('/alerts'):
+        print(f"Alert from {topic}:")
+        print(f"  Type: {payload['type']}")
+        print(f"  Message: {payload['message']}")
+
+# Create client
+client = mqtt.Client(client_id=f"python_subscriber_{USER_ID}")
+client.username_pw_set(MQTT_TOKEN, MQTT_TOKEN)
+
+# Set callbacks
+client.on_connect = on_connect
+client.on_message = on_message
+
+# Connect dan loop
+try:
+    client.connect(BROKER, PORT, 60)
+    client.loop_forever()
+except KeyboardInterrupt:
+    print("\nDisconnecting...")
+    client.disconnect()
+```
+
+---
+
+### 5. Subscribe via Node.js (mqtt.js)
+
+**Install:**
+
+```bash
+npm install mqtt
+```
+
+**Example Code:**
+
+```javascript
+const mqtt = require("mqtt");
+
+// Config
+const BROKER = "mqtt://localhost:1883";
+const MQTT_TOKEN = "your-mqtt-token";
+const COMPANY_ID = "your-company-id";
+const USER_ID = "your-user-id";
+
+// Connect
+const client = mqtt.connect(BROKER, {
+  username: MQTT_TOKEN,
+  password: MQTT_TOKEN,
+  clientId: `node_subscriber_${USER_ID}_${Date.now()}`,
+  clean: true,
+  reconnectPeriod: 5000,
+});
+
+// On connect
+client.on("connect", () => {
+  console.log("Connected to MQTT broker");
+
+  // Subscribe topics
+  const topics = [
+    `fitsense/${COMPANY_ID}/+/hr`, // All HR data
+    `fitsense/${COMPANY_ID}/+/alerts`, // All alerts
+  ];
+
+  client.subscribe(topics, (err) => {
+    if (!err) {
+      console.log(`Subscribed to topics:`, topics);
+    } else {
+      console.error("Subscribe error:", err);
+    }
+  });
+});
+
+// On message
+client.on("message", (topic, message) => {
+  const payload = JSON.parse(message.toString());
+
+  console.log(`\n[${new Date().toISOString()}]`);
+  console.log(`Topic: ${topic}`);
+  console.log(`Payload:`, JSON.stringify(payload, null, 2));
+
+  if (topic.endsWith("/hr")) {
+    console.log(`➤ HR: ${payload.hr} bpm | Session: ${payload.session_id}`);
+  }
+
+  if (topic.endsWith("/alerts")) {
+    console.log(`⚠️  Alert: ${payload.type} - ${payload.message}`);
+  }
+});
+
+// On error
+client.on("error", (error) => {
+  console.error("MQTT Error:", error);
+});
+
+// Graceful shutdown
+process.on("SIGINT", () => {
+  console.log("\nDisconnecting...");
+  client.end();
+  process.exit();
+});
+```
+
+---
+
+### Topic Patterns untuk Subscribe
+
+| Pattern                                | Deskripsi                  | Role yang Diizinkan                   |
+| -------------------------------------- | -------------------------- | ------------------------------------- |
+| `fitsense/#`                           | Semua data platform        | super_admin                           |
+| `fitsense/{companyId}/#`               | Semua data company         | club_owner, trainer                   |
+| `fitsense/{companyId}/+/hr`            | HR semua member company    | club_owner, trainer                   |
+| `fitsense/{companyId}/+/alerts`        | Alert semua member company | club_owner, trainer                   |
+| `fitsense/{companyId}/{userId}/hr`     | HR member tertentu         | member (diri sendiri), trainer, owner |
+| `fitsense/{companyId}/{userId}/alerts` | Alert member tertentu      | member (diri sendiri), trainer, owner |
+
+**Wildcard:**
+
+- `+` : Single-level wildcard (match satu segment)
+- `#` : Multi-level wildcard (match semua segments di bawahnya)
+
+---
+
+### Format Message yang Diterima
+
+**HR Data:**
+
+```json
+{
+  "hr": 142,
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "timestamp": 1705320000000,
+  "rr": 850,
+  "hr_zone": "aerobic"
+}
+```
+
+**Alert:**
+
+```json
+{
+  "type": "CRITICAL",
+  "message": "Heart rate terlalu tinggi (180 bpm > 95% Max_HR)",
+  "hr": 180,
+  "threshold": 171,
+  "user_id": "user-uuid",
+  "company_id": "company-uuid",
+  "timestamp": 1705320000000
+}
+```
+
+---
+
+### Troubleshooting Subscribe
+
+**Connection Refused:**
+
+```
+Error: Connection refused
+```
+
+- Cek EMQX broker sudah running: `docker compose ps emqx`
+- Cek port tidak diblock firewall
+- Verify host dan port benar
+
+**Authentication Failed:**
+
+```
+Error: Connection refused: Not authorized
+```
+
+- MQTT_Token expired (30 menit), refresh token dengan login ulang
+- Username/password salah
+- ACL denied: Cek role dan topic pattern sesuai
+
+**No Messages Received:**
+
+- Cek topic pattern benar (case-sensitive)
+- Pastikan ada data yang di-publish ke topic tersebut
+- Verify ACL permissions dengan admin
+
+**WebSocket Connection Failed (Browser):**
+
+```
+Error: WebSocket connection failed
+```
+
+- Development: Gunakan `ws://` bukan `wss://`
+- Production: Pastikan SSL certificate valid
+- Cek NGINX proxy configuration untuk WebSocket
 
 ---
 
