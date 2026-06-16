@@ -367,3 +367,5 @@ out/
 !.env.example
 !.vscode/settings.json.example
 !.gitkeep
+.kiro
+.vscode
