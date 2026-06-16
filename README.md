@@ -1,7 +1,7 @@
 # FitSense Platform
 
 > **Platform Monitoring Heart Rate Real-Time Multi-Tenant untuk Gym**  
-> Version 2.0 - Januari 2024
+> Version 2.0 - Januari 2026
 
 Platform SaaS multi-tenant untuk monitoring heart rate (HR) secara real-time di gym. Trainer memantau semua member secara live via web dashboard, dan sistem ML memberikan rekomendasi latihan serta peringatan anomali HR secara otomatis.
 
