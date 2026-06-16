@@ -191,6 +191,16 @@ temp/
 !.vscode/settings.json.example
 *.code-workspace
 
+# Kiro AI (development tool)
+.kiro/
+
+# Spec files (optional - uncomment jika tidak ingin track)
+# *.spec.md
+# fitsense.spec.md
+
+# Git commit templates
+.git/COMMIT_EDITMSG_TEMPLATE.txt
+
 # IntelliJ IDEA
 .idea/
 *.iml
