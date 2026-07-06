@@ -21,8 +21,24 @@ export default function NewMemberPage() {
     register,
     handleSubmit,
     setError,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<AddMemberForm>({ resolver: zodResolver(addMemberSchema) });
+
+  const dateOfBirth = watch("date_of_birth");
+  const getCalculatedAge = (dobString: string | undefined) => {
+    if (!dobString) return null;
+    const date = new Date(dobString);
+    if (isNaN(date.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - date.getFullYear();
+    const m = today.getMonth() - date.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < date.getDate())) {
+      age--;
+    }
+    return age;
+  };
+  const calculatedAge = getCalculatedAge(dateOfBirth);
 
   const onSubmit = async (data: AddMemberForm) => {
     const companyId = getCompanyId();
@@ -41,7 +57,7 @@ export default function NewMemberPage() {
       email: data.email,
       password: data.password,
       role: "member",
-      age: data.age,
+      date_of_birth: data.date_of_birth,
       gender: data.gender || undefined,
       height: data.height || undefined,
       weight: data.weight || undefined,
@@ -107,15 +123,18 @@ export default function NewMemberPage() {
             placeholder="Min. 8 karakter"
           />
           <FormInput
-            id="age"
-            label="Usia"
-            type="number"
+            id="date_of_birth"
+            label="Tanggal Lahir"
+            type="date"
             required
-            register={register("age", { valueAsNumber: true })}
-            error={errors.age?.message}
-            placeholder="25"
-            hint="Wajib untuk kalkulasi HR zone (Max HR = 220 - usia)"
+            register={register("date_of_birth")}
+            error={errors.date_of_birth?.message}
           />
+          {calculatedAge !== null && !errors.date_of_birth && (
+            <div style={{ fontSize: 13, color: "#4b5563", marginTop: -12, marginBottom: 16 }}>
+              Usia saat ini: <strong>{calculatedAge} tahun</strong> (dihitung otomatis)
+            </div>
+          )}
           <FormSelect
             id="gender"
             label="Gender"

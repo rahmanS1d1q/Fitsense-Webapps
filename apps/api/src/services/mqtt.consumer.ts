@@ -125,6 +125,15 @@ async function autoAssignDevice(
 }
 
 async function callMlAnomalyCheck(point: HRDataPoint): Promise<void> {
+  // Skip ML service if not configured
+  if (
+    !config.ml.serviceUrl ||
+    config.ml.serviceUrl === "http://localhost:8000"
+  ) {
+    console.log("[mqtt] ML service not configured, skipping anomaly check");
+    return;
+  }
+
   try {
     const res = await fetch(`${config.ml.serviceUrl}/ml/anomaly-check`, {
       method: "POST",

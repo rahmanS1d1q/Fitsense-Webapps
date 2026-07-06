@@ -14,6 +14,7 @@ import workoutsRouter from "./routes/workouts.routes";
 import workoutAssignmentsRouter from "./routes/workout-assignments";
 import assetsRouter from "./routes/assets.routes";
 import devicesRouter from "./routes/devices.routes";
+import auditRouter from "./routes/audit.routes";
 
 const app: Application = express();
 
@@ -21,7 +22,12 @@ const app: Application = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+    origin: [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "http://localhost:3100",
+      "http://127.0.0.1:3100",
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -61,6 +67,7 @@ app.use("/api/clubs", inviteRouter);
 
 // Admin + health check routes
 app.use("/api", adminRouter);
+app.use("/api/admin/audit-logs", auditRouter);
 
 // Workout routes
 app.use("/api/companies", workoutsRouter);

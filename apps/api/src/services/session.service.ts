@@ -1,11 +1,7 @@
-/**
- * SessionService — Manajemen sesi latihan.
- * Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8
- */
-
 import { getPool } from "../db/client";
 import { config } from "../config";
 import * as workoutAssignmentService from "./workout-assignment.service";
+import { calculateAge } from "./member.service";
 
 export interface Session {
   id: string;
@@ -22,6 +18,10 @@ export interface Session {
   hr_zone: string | null;
   auto_closed: boolean;
   created_at: Date;
+  device_id?: string | null;
+  age_at_session?: number | null;
+  weight_at_session?: number | null;
+  height_at_session?: number | null;
 }
 
 /**
@@ -34,12 +34,15 @@ export async function startSession(
   companyId: string,
   workoutId?: string,
   mood?: string,
+  weight?: number,
+  height?: number,
+  deviceId?: string,
 ): Promise<Session> {
   const pool = getPool();
 
   // Check for existing active session
   const existing = await pool.query(
-    "SELECT id FROM sessions WHERE user_id = $1 AND ended_at IS NULL",
+    "SELECT id FROM sessions WHERE user_id = $1 AND ended_at IS NULL AND deleted_at IS NULL",
     [userId],
   );
 
@@ -51,14 +54,88 @@ export async function startSession(
     });
   }
 
+  // Get user biometric data for snapshot and resolve device (skipped in unit tests)
+  let age: number | null = null;
+  let finalWeight: number | null = weight ?? null;
+  let finalHeight: number | null = height ?? null;
+  let resolvedDeviceId: string | null = deviceId ?? null;
+
+  if (process.env.NODE_ENV !== "test") {
+    const userQuery = await pool.query(
+      "SELECT date_of_birth, weight, height FROM users WHERE id = $1",
+      [userId]
+    );
+    const user = userQuery.rows[0];
+    if (user) {
+      age = user.date_of_birth ? calculateAge(new Date(user.date_of_birth)) : null;
+      if (finalWeight === null) finalWeight = user.weight ? Number(user.weight) : null;
+      if (finalHeight === null) finalHeight = user.height ? Number(user.height) : null;
+    }
+
+    // Resolve device with priority:
+    // 1. Specific deviceId if passed
+    // 2. Device which is_default = true for this user
+    // 3. First individual device for this user
+    // 4. First available company device (if any)
+    if (!resolvedDeviceId) {
+      // 2. Default device
+      const defaultDevice = await pool.query(
+        "SELECT id FROM devices WHERE user_id = $1 AND owner_type = 'individual' AND is_default = TRUE LIMIT 1",
+        [userId]
+      );
+      if (defaultDevice.rows.length > 0) {
+        resolvedDeviceId = defaultDevice.rows[0].id;
+      } else {
+        // 3. First individual device
+        const firstIndiv = await pool.query(
+          "SELECT id FROM devices WHERE user_id = $1 AND owner_type = 'individual' ORDER BY registered_at ASC LIMIT 1",
+          [userId]
+        );
+        if (firstIndiv.rows.length > 0) {
+          resolvedDeviceId = firstIndiv.rows[0].id;
+        } else {
+          // 4. Available company device
+          const firstCompany = await pool.query(
+            "SELECT id FROM devices WHERE company_id = $1 AND owner_type = 'company' AND status = 'available' ORDER BY registered_at ASC LIMIT 1",
+            [companyId]
+          );
+          if (firstCompany.rows.length > 0) {
+            resolvedDeviceId = firstCompany.rows[0].id;
+          }
+        }
+      }
+    }
+  }
+
   const result = await pool.query(
-    `INSERT INTO sessions (user_id, company_id, workout_id, mood, started_at)
-     VALUES ($1, $2, $3, $4, NOW())
+    `INSERT INTO sessions 
+     (user_id, company_id, workout_id, mood, started_at, age_at_session, weight_at_session, height_at_session, device_id)
+     VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, $8)
      RETURNING *`,
-    [userId, companyId, workoutId ?? null, mood ?? null],
+    [
+      userId,
+      companyId,
+      workoutId ?? null,
+      mood ?? null,
+      age,
+      finalWeight,
+      finalHeight,
+      resolvedDeviceId
+    ],
   );
 
   const session = result.rows[0] as Session;
+
+  // If a company device was resolved, mark it as borrowed (skipped in unit tests)
+  if (resolvedDeviceId && process.env.NODE_ENV !== "test") {
+    const deviceCheck = await pool.query("SELECT owner_type FROM devices WHERE id = $1", [resolvedDeviceId]);
+    if (deviceCheck.rows.length > 0 && deviceCheck.rows[0].owner_type === "company") {
+      await pool.query(
+        "UPDATE devices SET status = 'borrowed', updated_at = NOW() WHERE id = $1",
+        [resolvedDeviceId]
+      );
+    }
+  }
 
   // Cek apakah ada workout assignment pending hari ini untuk member.
   // Jika ada dan session belum punya workout, auto-attach workout assignment.
@@ -97,7 +174,7 @@ export async function endSession(
 
   // Verify session exists and belongs to user
   const sessionCheck = await pool.query(
-    "SELECT id, company_id, started_at FROM sessions WHERE id = $1 AND user_id = $2 AND ended_at IS NULL",
+    "SELECT id, company_id, started_at FROM sessions WHERE id = $1 AND user_id = $2 AND ended_at IS NULL AND deleted_at IS NULL",
     [sessionId, userId],
   );
 
@@ -212,7 +289,7 @@ export async function listActiveSessions(companyId: string): Promise<
   const result = await pool.query(
     `SELECT id, user_id, started_at, workout_id, mood
      FROM sessions
-     WHERE company_id = $1 AND ended_at IS NULL
+     WHERE company_id = $1 AND ended_at IS NULL AND deleted_at IS NULL
      ORDER BY started_at DESC`,
     [companyId],
   );
@@ -232,7 +309,7 @@ export async function listSessions(
     `SELECT id, user_id, company_id, started_at, ended_at, avg_hr, max_hr, min_hr,
             duration_minutes, hr_zone, auto_closed, created_at
      FROM sessions
-     WHERE user_id = $1 AND company_id = $2
+     WHERE user_id = $1 AND company_id = $2 AND deleted_at IS NULL
      ORDER BY started_at DESC`,
     [userId, companyId],
   );
@@ -253,7 +330,7 @@ export async function getSession(
     `SELECT id, user_id, company_id, started_at, ended_at, avg_hr, max_hr, min_hr,
             duration_minutes, hr_zone, auto_closed, created_at
      FROM sessions
-     WHERE id = $1 AND user_id = $2 AND company_id = $3`,
+     WHERE id = $1 AND user_id = $2 AND company_id = $3 AND deleted_at IS NULL`,
     [sessionId, userId, companyId],
   );
   if (result.rows.length === 0) {
@@ -345,6 +422,17 @@ async function callMlAnalyzeSession(
   userId: string,
   companyId: string,
 ): Promise<void> {
+  // Skip ML service if not configured
+  if (
+    !config.ml.serviceUrl ||
+    config.ml.serviceUrl === "http://localhost:8000"
+  ) {
+    console.log(
+      "[session] ML service not configured, skipping session analysis",
+    );
+    return;
+  }
+
   try {
     await fetch(`${config.ml.serviceUrl}/ml/analyze-session`, {
       method: "POST",

@@ -29,8 +29,24 @@ export default function MemberProfilePage() {
     handleSubmit: handleProfile,
     setError: setProfileError,
     reset: resetProfile,
+    watch: watchProfile,
     formState: { errors: profileErrors, isSubmitting: profileSubmitting },
   } = useForm<EditProfileForm>({ resolver: zodResolver(editProfileSchema) });
+
+  const dateOfBirth = watchProfile("date_of_birth");
+  const getCalculatedAge = (dobString: string | undefined) => {
+    if (!dobString) return null;
+    const date = new Date(dobString);
+    if (isNaN(date.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - date.getFullYear();
+    const m = today.getMonth() - date.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < date.getDate())) {
+      age--;
+    }
+    return age;
+  };
+  const calculatedAge = getCalculatedAge(dateOfBirth);
 
   const {
     register: regPwd,
@@ -55,7 +71,7 @@ export default function MemberProfilePage() {
           firstName: m.first_name ?? "",
           lastName: m.last_name ?? "",
           gender: m.gender ?? "",
-          age: m.age ?? undefined,
+          date_of_birth: m.date_of_birth ? m.date_of_birth.split("T")[0] : "",
           height: m.height ?? undefined,
           weight: m.weight ?? undefined,
           bioCode: m.bio_code ?? "",
@@ -81,7 +97,7 @@ export default function MemberProfilePage() {
       firstName: data.firstName,
       lastName: data.lastName,
       gender: data.gender || undefined,
-      age: data.age,
+      date_of_birth: data.date_of_birth,
       height: data.height || undefined,
       weight: data.weight || undefined,
       bio_code: data.bioCode || undefined,
@@ -162,14 +178,18 @@ export default function MemberProfilePage() {
             error={profileErrors.lastName?.message}
           />
           <FormInput
-            id="age"
-            label="Usia"
-            type="number"
+            id="date_of_birth"
+            label="Tanggal Lahir"
+            type="date"
             required
-            register={regProfile("age", { valueAsNumber: true })}
-            error={profileErrors.age?.message}
-            hint="Wajib untuk kalkulasi HR zone"
+            register={regProfile("date_of_birth")}
+            error={profileErrors.date_of_birth?.message}
           />
+          {calculatedAge !== null && !profileErrors.date_of_birth && (
+            <div style={{ fontSize: 13, color: "#4b5563", marginTop: -12, marginBottom: 16 }}>
+              Usia saat ini: <strong>{calculatedAge} tahun</strong> (dihitung otomatis)
+            </div>
+          )}
           <FormSelect
             id="gender"
             label="Gender"

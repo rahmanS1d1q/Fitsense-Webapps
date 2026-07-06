@@ -105,7 +105,7 @@ export async function createAssignment(
   const dupeCheck = await pool.query(
     `SELECT 1 FROM workout_assignments
      WHERE member_id = $1 AND company_id = $2
-       AND assigned_date = $3 AND status = 'pending'`,
+       AND assigned_date = $3 AND status = 'pending' AND deleted_at IS NULL`,
     [data.member_id, companyId, data.assigned_date],
   );
   if (dupeCheck.rows.length > 0) {
@@ -144,7 +144,7 @@ export async function listAssignments(
 ): Promise<WorkoutAssignment[]> {
   const pool = getPool();
 
-  const conditions: string[] = ["wa.company_id = $1"];
+  const conditions: string[] = ["wa.company_id = $1", "wa.deleted_at IS NULL"];
   const values: unknown[] = [companyId];
   let idx = 2;
 
@@ -209,7 +209,7 @@ export async function getAssignment(
      JOIN users m ON m.id = wa.member_id
      JOIN users t ON t.id = wa.trainer_id
      JOIN workouts w ON w.id = wa.workout_id
-     WHERE wa.id = $1 AND wa.company_id = $2`,
+     WHERE wa.id = $1 AND wa.company_id = $2 AND wa.deleted_at IS NULL`,
     [assignmentId, companyId],
   );
   if (result.rows.length === 0) {
@@ -229,7 +229,7 @@ export async function listMemberAssignments(
 ): Promise<WorkoutAssignment[]> {
   const pool = getPool();
 
-  const conditions: string[] = ["wa.member_id = $1", "wa.company_id = $2"];
+  const conditions: string[] = ["wa.member_id = $1", "wa.company_id = $2", "wa.deleted_at IS NULL"];
   const values: unknown[] = [memberId, companyId];
   let idx = 3;
 
@@ -280,7 +280,7 @@ export async function getTodayPendingAssignment(
      FROM workout_assignments wa
      JOIN workouts w ON w.id = wa.workout_id
      WHERE wa.member_id = $1 AND wa.company_id = $2
-       AND wa.assigned_date = CURRENT_DATE AND wa.status = 'pending'
+       AND wa.assigned_date = CURRENT_DATE AND wa.status = 'pending' AND wa.deleted_at IS NULL
      ORDER BY wa.created_at ASC
      LIMIT 1`,
     [memberId, companyId],
@@ -299,7 +299,7 @@ export async function updateAssignment(
   const pool = getPool();
 
   const existing = await pool.query(
-    "SELECT status FROM workout_assignments WHERE id = $1 AND company_id = $2",
+    "SELECT status FROM workout_assignments WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL",
     [assignmentId, companyId],
   );
   if (existing.rows.length === 0) {
@@ -376,7 +376,7 @@ export async function deleteAssignment(
   const pool = getPool();
 
   const existing = await pool.query(
-    "SELECT status FROM workout_assignments WHERE id = $1 AND company_id = $2",
+    "SELECT status FROM workout_assignments WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL",
     [assignmentId, companyId],
   );
   if (existing.rows.length === 0) {
@@ -391,7 +391,7 @@ export async function deleteAssignment(
   }
 
   await pool.query(
-    "DELETE FROM workout_assignments WHERE id = $1 AND company_id = $2",
+    "UPDATE workout_assignments SET deleted_at = NOW() WHERE id = $1 AND company_id = $2",
     [assignmentId, companyId],
   );
 }

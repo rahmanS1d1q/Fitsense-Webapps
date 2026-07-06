@@ -1,0 +1,66 @@
+# docker-compose.dev.yml — Infrastruktur untuk Development Lokal
+#
+# Gunakan file ini saat development:
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Ini hanya menjalankan: PostgreSQL, InfluxDB, Redis, EMQX
+# API dan Web dijalankan manual di terminal:
+#   apps/api  → npm run dev        (port 3001)
+#   apps/web  → npm run dev -p 3100 (port 3100, karena 3000 diblokir Windows)
+
+services:
+  emqx:
+    image: emqx:5
+    ports:
+      - "1883:1883"   # MQTT TCP (untuk API server internal)
+      - "8083:8083"   # MQTT WebSocket (untuk web dashboard)
+      - "8883:8883"   # MQTT TLS (untuk mobile app)
+      - "18083:18083" # EMQX Dashboard (admin UI)
+    volumes:
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - emqx_data:/opt/emqx/data
+    environment:
+      EMQX_NODE__NAME: emqx@127.0.0.1
+      EMQX_NODE__COOKIE: fitsense-emqx-cookie
+    restart: unless-stopped
+
+  influxdb:
+    image: influxdb:2.7
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
+      DOCKER_INFLUXDB_INIT_ORG: fitsense
+      DOCKER_INFLUXDB_INIT_BUCKET: heartrate
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: fitsense
+      POSTGRES_USER: fitsense
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  influxdb_data:
+  postgres_data:
+  redis_data:
+  emqx_data:

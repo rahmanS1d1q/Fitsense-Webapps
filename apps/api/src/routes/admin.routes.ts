@@ -122,7 +122,20 @@ router.get(
     try {
       const pool = getPool();
       const result = await pool.query(
-        "SELECT id, name, slug, status, created_at FROM companies ORDER BY created_at DESC",
+        `SELECT
+          c.id,
+          c.name,
+          c.slug,
+          c.status,
+          c.created_at,
+          COUNT(CASE WHEN uc.role = 'member' THEN 1 END) as member_count,
+          COUNT(CASE WHEN uc.role = 'trainer' THEN 1 END) as trainer_count
+        FROM companies c
+        LEFT JOIN users_companies uc ON c.id = uc.company_id
+        LEFT JOIN users u ON uc.user_id = u.id AND u.deleted_at IS NULL
+        WHERE c.deleted_at IS NULL
+        GROUP BY c.id
+        ORDER BY c.created_at DESC`,
       );
       return res.json({ companies: result.rows });
     } catch (err: unknown) {
@@ -290,25 +303,109 @@ router.post(
 /**
  * GET /api/admin/users
  * List all users with their company roles (super_admin only)
+ * Query: ?search=&role=&status=&company_id=&page=1&limit=10
  */
 router.get(
   "/admin/users",
   authMiddleware,
   rbacMiddleware("super_admin"),
-  async (_req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
+    const { search, role, status, company_id, page, limit } = req.query;
+    const pageNum = Math.max(1, Number(page || 1));
+    const limitNum = Math.max(1, Number(limit || 10));
+    const offset = (pageNum - 1) * limitNum;
+
+    const pool = getPool();
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+    let idx = 1;
+
+    if (search) {
+      conditions.push(`(first_name ILIKE $${idx} OR last_name ILIKE $${idx} OR email ILIKE $${idx})`);
+      values.push(`%${search}%`);
+      idx++;
+    }
+
+    if (role) {
+      conditions.push(`$${idx} = ANY(roles)`);
+      values.push(role);
+      idx++;
+    }
+
+    if (status) {
+      conditions.push(`status = $${idx}`);
+      values.push(status);
+      idx++;
+    }
+
+    if (company_id) {
+      conditions.push(`$${idx} = ANY(company_ids)`);
+      values.push(company_id);
+      idx++;
+    }
+
     try {
-      const pool = getPool();
-      const result = await pool.query(
-        `SELECT u.id, u.first_name, u.last_name, u.email, u.role as super_role,
-                u.status, u.created_at,
-                uc.role as company_role, uc.company_id,
-                c.name as company_name
-         FROM users u
-         LEFT JOIN users_companies uc ON uc.user_id = u.id
-         LEFT JOIN companies c ON c.id = uc.company_id
-         ORDER BY u.created_at DESC`,
-      );
-      return res.json({ users: result.rows });
+      const countQuery = `
+        WITH user_list AS (
+          SELECT
+            u.id,
+            u.first_name,
+            u.last_name,
+            u.email,
+            u.status,
+            u.deleted_at,
+            u.role as main_role,
+            u.created_at,
+            CASE WHEN u.role = 'super_admin' THEN ARRAY['super_admin']::text[] ELSE ARRAY_REMOVE(ARRAY_AGG(DISTINCT uc.role), NULL) END as roles,
+            CASE WHEN u.role = 'super_admin' THEN ARRAY['All Companies']::text[] ELSE ARRAY_REMOVE(ARRAY_AGG(DISTINCT c.name), NULL) END as companies,
+            ARRAY_REMOVE(ARRAY_AGG(DISTINCT c.id::text), NULL) as company_ids
+          FROM users u
+          LEFT JOIN users_companies uc ON u.id = uc.user_id
+          LEFT JOIN companies c ON uc.company_id = c.id
+          GROUP BY u.id, u.first_name, u.last_name, u.email, u.status, u.deleted_at, u.role, u.created_at
+        )
+        SELECT COUNT(*) FROM user_list
+        WHERE 1=1 ${conditions.length > 0 ? "AND " + conditions.join(" AND ") : ""}
+      `;
+
+      const countResult = await pool.query(countQuery, values);
+      const total = Number(countResult.rows[0].count);
+
+      const selectQuery = `
+        WITH user_list AS (
+          SELECT
+            u.id,
+            u.first_name,
+            u.last_name,
+            u.email,
+            u.status,
+            u.deleted_at,
+            u.role as main_role,
+            u.created_at,
+            CASE WHEN u.role = 'super_admin' THEN ARRAY['super_admin']::text[] ELSE ARRAY_REMOVE(ARRAY_AGG(DISTINCT uc.role), NULL) END as roles,
+            CASE WHEN u.role = 'super_admin' THEN ARRAY['All Companies']::text[] ELSE ARRAY_REMOVE(ARRAY_AGG(DISTINCT c.name), NULL) END as companies,
+            ARRAY_REMOVE(ARRAY_AGG(DISTINCT c.id::text), NULL) as company_ids
+          FROM users u
+          LEFT JOIN users_companies uc ON u.id = uc.user_id
+          LEFT JOIN companies c ON uc.company_id = c.id
+          GROUP BY u.id, u.first_name, u.last_name, u.email, u.status, u.deleted_at, u.role, u.created_at
+        )
+        SELECT * FROM user_list
+        WHERE 1=1 ${conditions.length > 0 ? "AND " + conditions.join(" AND ") : ""}
+        ORDER BY created_at DESC
+        LIMIT $${idx} OFFSET $${idx + 1}
+      `;
+
+      const selectValues = [...values, limitNum, offset];
+      const result = await pool.query(selectQuery, selectValues);
+
+      return res.json({
+        users: result.rows,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        pages: Math.ceil(total / limitNum),
+      });
     } catch (err: unknown) {
       const error = err as { message?: string };
       console.error("[admin] listUsers error:", error.message);
@@ -496,6 +593,212 @@ router.delete(
       });
     }
   },
+);
+
+/**
+ * GET /api/admin/stats
+ * Get platform stats (super_admin only)
+ */
+router.get(
+  "/admin/stats",
+  authMiddleware,
+  rbacMiddleware("super_admin"),
+  async (_req: Request, res: Response) => {
+    const pool = getPool();
+    try {
+      const statsResult = await pool.query(`
+        SELECT 
+          (SELECT COUNT(*) FROM users WHERE deleted_at IS NULL) as total_users,
+          (SELECT COUNT(*) FROM users WHERE status = 'active' AND deleted_at IS NULL) as active_users,
+          (SELECT COUNT(*) FROM users WHERE status = 'inactive' AND deleted_at IS NULL) as inactive_users,
+          (SELECT COUNT(*) FROM companies WHERE deleted_at IS NULL) as total_companies,
+          (SELECT COUNT(*) FROM companies WHERE status = 'active' AND deleted_at IS NULL) as active_companies
+      `);
+      const stats = statsResult.rows[0];
+      return res.json({
+        total_users: Number(stats.total_users),
+        active_users: Number(stats.active_users),
+        inactive_users: Number(stats.inactive_users),
+        total_companies: Number(stats.total_companies),
+        active_companies: Number(stats.active_companies)
+      });
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      console.error("[admin] getStats error:", error.message);
+      return res.status(500).json({
+        error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+      });
+    }
+  },
+);
+
+/**
+ * PATCH /api/admin/users/:userId/activate
+ * Activate an inactive user (super_admin only)
+ */
+router.patch(
+  "/admin/users/:userId/activate",
+  authMiddleware,
+  rbacMiddleware("super_admin"),
+  async (req: Request, res: Response) => {
+    const { userId } = req.params;
+    const performedBy = req.user!.userId;
+    const pool = getPool();
+
+    try {
+      const check = await pool.query(
+        "SELECT id, first_name, last_name, email, role, status FROM users WHERE id = $1",
+        [userId]
+      );
+      if (check.rows.length === 0) {
+        return res.status(404).json({ error: { message: "User tidak ditemukan" } });
+      }
+      const user = check.rows[0];
+
+      await pool.query(
+        "UPDATE users SET status = 'active', deleted_at = NULL, deleted_by = NULL, updated_at = NOW() WHERE id = $1",
+        [userId]
+      );
+
+      const auditLogService = require("../services/audit-log.service");
+      await auditLogService.log({
+        action: "restore",
+        entityType: "user",
+        entityId: userId,
+        entityData: {
+          id: user.id,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          email: user.email,
+          role: user.role,
+        },
+        performedBy,
+      });
+
+      return res.json({ message: "User berhasil diaktifkan kembali" });
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      console.error("[admin] activateUser error:", error.message);
+      return res.status(500).json({
+        error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+      });
+    }
+  }
+);
+
+/**
+ * DELETE /api/admin/users/:userId/permanent
+ * Hard delete a user permanently (super_admin only)
+ */
+router.delete(
+  "/admin/users/:userId/permanent",
+  authMiddleware,
+  rbacMiddleware("super_admin"),
+  async (req: Request, res: Response) => {
+    const { userId } = req.params;
+    const { confirmation_name } = req.body;
+    const performedBy = req.user!.userId;
+
+    if (!confirmation_name) {
+      return res.status(400).json({ error: { message: "Nama konfirmasi tidak sesuai" } });
+    }
+
+    const pool = getPool();
+    try {
+      // 1. Get user details
+      const userRes = await pool.query(
+        "SELECT id, first_name, last_name, email, role, status FROM users WHERE id = $1",
+        [userId]
+      );
+      if (userRes.rows.length === 0) {
+        return res.status(404).json({ error: { message: "User tidak ditemukan" } });
+      }
+      const user = userRes.rows[0];
+
+      // 2. Validate own account
+      if (userId === performedBy) {
+        return res.status(400).json({ error: { message: "Tidak bisa menghapus akun sendiri" } });
+      }
+
+      // 3. Validate other super admin
+      if (user.role === "super_admin") {
+        return res.status(403).json({ error: { message: "Tidak bisa menghapus akun super admin" } });
+      }
+
+      // 4. Validate confirmation name
+      const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ");
+      if (confirmation_name !== fullName) {
+        return res.status(400).json({ error: { message: "Nama konfirmasi tidak sesuai" } });
+      }
+
+      // 5. Check active sessions
+      const activeSessionCheck = await pool.query(
+        "SELECT id FROM sessions WHERE user_id = $1 AND ended_at IS NULL",
+        [userId]
+      );
+      if (activeSessionCheck.rows.length > 0) {
+        return res.status(409).json({ error: { message: "Member masih memiliki sesi aktif, tutup sesi dulu" } });
+      }
+
+      // 6. Perform deletion
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        // Record audit log
+        const auditLogService = require("../services/audit-log.service");
+        await auditLogService.log({
+          action: "hard_delete",
+          entityType: "user",
+          entityId: userId,
+          entityData: {
+            id: user.id,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            email: user.email,
+            role: user.role,
+            status: user.status,
+          },
+          performedBy,
+        });
+
+        // Invalidate Redis tokens
+        const redis = getRedis();
+        await redis.del(`refresh_token:${userId}`);
+
+        // Scan and delete matching MQTT sessions
+        const keys = await redis.keys("mqtt_session:*");
+        for (const key of keys) {
+          const data = await redis.get(key);
+          if (data) {
+            try {
+              const session = JSON.parse(data);
+              if (session.userId === userId) {
+                await redis.del(key);
+              }
+            } catch {}
+          }
+        }
+
+        await client.query("DELETE FROM users WHERE id = $1", [userId]);
+
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+
+      return res.json({ message: "User berhasil dihapus permanen" });
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      console.error("[admin] permanent delete user error:", error.message);
+      return res.status(500).json({
+        error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+      });
+    }
+  }
 );
 
 export default router;

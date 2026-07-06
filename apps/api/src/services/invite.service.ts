@@ -58,7 +58,7 @@ export interface RegisterMemberInput {
   name?: string; // backward compat
   email: string;
   password: string;
-  age?: number;
+  date_of_birth?: string;
 }
 
 export interface RegisterMemberResult {
@@ -166,7 +166,7 @@ export async function validateAndUseInvite(
       (input.name ? input.name.split(" ").slice(1).join(" ") : "");
 
     const userResult = await client.query(
-      `INSERT INTO users (first_name, last_name, email, password_hash, age, role, status)
+      `INSERT INTO users (first_name, last_name, email, password_hash, date_of_birth, role, status)
        VALUES ($1, $2, $3, $4, $5, 'member', 'active')
        RETURNING id, first_name, last_name, email`,
       [
@@ -174,7 +174,7 @@ export async function validateAndUseInvite(
         lastName || firstName,
         input.email,
         passwordHash,
-        input.age ?? null,
+        input.date_of_birth ?? null,
       ],
     );
     const user = userResult.rows[0];

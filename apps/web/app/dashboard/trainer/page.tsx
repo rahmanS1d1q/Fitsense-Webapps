@@ -8,6 +8,11 @@ import AlertBanner, { Alert } from "../../../components/AlertBanner";
 import ConnectionStatus from "../../../components/ConnectionStatus";
 import Navbar from "../../../components/Navbar";
 import PageHeader from "../../../components/PageHeader";
+import {
+  PageContainer,
+  PageSection,
+  Card,
+} from "../../../components/layout/PageContainer";
 import type { HRZone } from "../../../components/HRZoneBadge";
 
 export default function TrainerDashboardPage() {
@@ -80,134 +85,80 @@ export default function TrainerDashboardPage() {
   return (
     <>
       <Navbar />
-      <div style={{ padding: "32px 32px", maxWidth: 1200, margin: "0 auto" }}>
+      <PageContainer>
         <PageHeader
           title="Live Monitoring"
           subtitle="Pantau heart rate semua member secara real-time"
           right={<ConnectionStatus status={status} />}
         />
 
-        {/* Stats */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          {[
-            {
-              label: "Total Member",
-              value: members.length,
-              color: "var(--brand-600)",
-              icon: "👥",
-            },
-            {
-              label: "Sedang Aktif",
-              value: activeCount,
-              color: "var(--success-600)",
-              icon: "🟢",
-            },
-            {
-              label: "Alerts Aktif",
-              value: alerts.length,
-              color: "var(--danger-600)",
-              icon: "🚨",
-            },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              style={{
-                background: "var(--bg-card)",
-                border: "1px solid var(--border-subtle)",
-                borderRadius: "var(--radius-lg)",
-                padding: 20,
-                boxShadow: "var(--shadow-xs)",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 8,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: "var(--gray-500)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                  }}
-                >
-                  {stat.label}
-                </span>
-                <span style={{ fontSize: 18 }}>{stat.icon}</span>
+        <PageSection>
+          {/* Stats */}
+          <div className="stats-grid">
+            {[
+              {
+                label: "Total Member",
+                value: members.length,
+                color: "var(--brand-600)",
+                icon: "👥",
+              },
+              {
+                label: "Sedang Aktif",
+                value: activeCount,
+                color: "var(--success-600)",
+                icon: "🟢",
+              },
+              {
+                label: "Alerts Aktif",
+                value: alerts.length,
+                color: "var(--danger-600)",
+                icon: "🚨",
+              },
+            ].map((stat) => (
+              <div key={stat.label} className="stat-card">
+                <div className="stat-header">
+                  <span className="stat-label">{stat.label}</span>
+                  <span className="stat-icon">{stat.icon}</span>
+                </div>
+                <div className="stat-value" style={{ color: stat.color }}>
+                  {stat.value}
+                </div>
               </div>
-              <div
-                style={{
-                  fontSize: 28,
-                  fontWeight: 700,
-                  color: stat.color,
-                  fontVariantNumeric: "tabular-nums",
-                  letterSpacing: "-0.5px",
-                }}
-              >
-                {stat.value}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <AlertBanner
-          alerts={alerts}
-          onDismiss={(id) =>
-            setAlerts((prev) => prev.filter((a) => a.id !== id))
-          }
-        />
-
-        <div style={{ marginBottom: 16 }}>
-          <MemberSearch value={searchQuery} onChange={setSearchQuery} />
-        </div>
-
-        {filteredMembers.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "60px 24px",
-              background: "var(--bg-card)",
-              borderRadius: "var(--radius-lg)",
-              border: "1px solid var(--border-subtle)",
-            }}
-          >
-            <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.5 }}>
-              📡
-            </div>
-            <p
-              style={{
-                fontSize: 16,
-                color: "var(--gray-700)",
-                fontWeight: 500,
-                margin: 0,
-              }}
-            >
-              {members.length === 0
-                ? "Menunggu data member..."
-                : "Tidak ada member yang cocok"}
-            </p>
-            <p style={{ fontSize: 13, color: "var(--gray-400)", marginTop: 6 }}>
-              {members.length === 0
-                ? "Data akan muncul saat member memulai sesi latihan"
-                : "Coba ubah kata kunci pencarian"}
-            </p>
+            ))}
           </div>
-        ) : (
-          <MemberList members={filteredMembers} />
-        )}
-      </div>
+        </PageSection>
+
+        <PageSection>
+          <AlertBanner
+            alerts={alerts}
+            onDismiss={(id) =>
+              setAlerts((prev) => prev.filter((a) => a.id !== id))
+            }
+          />
+
+          <div className="mb-4">
+            <MemberSearch value={searchQuery} onChange={setSearchQuery} />
+          </div>
+
+          {filteredMembers.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">📡</div>
+              <p className="empty-state-title">
+                {members.length === 0
+                  ? "Menunggu data member..."
+                  : "Tidak ada member yang cocok"}
+              </p>
+              <p className="empty-state-description">
+                {members.length === 0
+                  ? "Data akan muncul saat member memulai sesi latihan"
+                  : "Coba ubah kata kunci pencarian"}
+              </p>
+            </div>
+          ) : (
+            <MemberList members={filteredMembers} />
+          )}
+        </PageSection>
+      </PageContainer>
     </>
   );
 }

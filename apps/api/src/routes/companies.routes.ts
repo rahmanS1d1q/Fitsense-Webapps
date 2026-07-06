@@ -105,9 +105,10 @@ router.delete(
   rbacMiddleware("super_admin"),
   async (req: Request, res: Response) => {
     const { companyId } = req.params;
+    const performedBy = req.user!.userId;
 
     try {
-      await CompanyService.suspendCompany(companyId);
+      await CompanyService.suspendCompany(companyId, performedBy);
       return res.json({ message: "Company suspended successfully" });
     } catch (err: unknown) {
       const error = err as { statusCode?: number; message?: string };
@@ -116,6 +117,79 @@ router.delete(
           .status(404)
           .json({ error: { code: "NOT_FOUND", message: error.message } });
       console.error("[companies] suspendCompany error:", error.message);
+      return res
+        .status(500)
+        .json({
+          error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+        });
+    }
+  },
+);
+
+/**
+ * DELETE /api/companies/:companyId/permanent
+ * Hard delete a company permanently (super_admin only)
+ */
+router.delete(
+  "/:companyId/permanent",
+  authMiddleware,
+  rbacMiddleware("super_admin"),
+  async (req: Request, res: Response) => {
+    const { companyId } = req.params;
+    const { confirmation_name } = req.body;
+    const performedBy = req.user!.userId;
+
+    if (!confirmation_name) {
+      return res.status(400).json({
+        error: { code: "VALIDATION_ERROR", message: "Nama konfirmasi tidak sesuai" },
+      });
+    }
+
+    try {
+      await CompanyService.hardDeleteCompany(companyId, confirmation_name, performedBy);
+      return res.json({ message: "Company permanently deleted successfully" });
+    } catch (err: unknown) {
+      const error = err as { statusCode?: number; message?: string };
+      if (error.statusCode === 404)
+        return res
+          .status(404)
+          .json({ error: { code: "NOT_FOUND", message: error.message } });
+      if (error.statusCode === 400)
+        return res
+          .status(400)
+          .json({ error: { code: "VALIDATION_ERROR", message: error.message } });
+      console.error("[companies] hardDeleteCompany error:", error.message);
+      return res
+        .status(500)
+        .json({
+          error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+        });
+    }
+  },
+);
+
+/**
+ * PATCH /api/companies/:companyId/activate
+ * Activate a company (super_admin only)
+ */
+router.patch(
+  "/:companyId/activate",
+  authMiddleware,
+  rbacMiddleware("super_admin"),
+  async (req: Request, res: Response) => {
+    const { companyId } = req.params;
+    const performedBy = req.user!.userId;
+
+    try {
+      await CompanyService.activateCompany(companyId, performedBy);
+      return res.json({ message: "Company activated successfully" });
+    } catch (err: unknown) {
+      const error = err as { statusCode?: number; message?: string };
+      if (error.statusCode === 404)
+        return res
+          .status(404)
+          .json({ error: { code: "NOT_FOUND", message: error.message } });
+      console.error("[companies] activateCompany error:", error.message);
       return res
         .status(500)
         .json({

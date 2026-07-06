@@ -29,7 +29,7 @@ router.post(
       name,
       email,
       password,
-      age,
+      date_of_birth,
       gender,
       height,
       weight,
@@ -59,7 +59,7 @@ router.post(
         lastName: resolvedLastName,
         email,
         password,
-        age,
+        date_of_birth,
         gender,
         height,
         weight,
@@ -171,13 +171,13 @@ router.patch(
   async (req: Request, res: Response) => {
     const companyId = getCompanyId(req);
     const { userId } = req.params;
-    const { firstName, lastName, age, gender, height, weight } = req.body;
+    const { firstName, lastName, date_of_birth, gender, height, weight } = req.body;
 
     try {
       const member = await MemberService.updateMember(companyId, userId, {
         firstName,
         lastName,
-        age,
+        date_of_birth,
         gender,
         height,
         weight,
@@ -207,26 +207,125 @@ router.patch(
 
 /**
  * DELETE /api/companies/:companyId/members/:userId
+ * Soft delete a member (deactivate)
  */
 router.delete(
   ["/:companyId/members/:userId", "/:companyId/members/:userId"],
+  authMiddleware,
+  rbacMiddleware("club_owner", "trainer"),
+  tenantMiddleware,
+  async (req: Request, res: Response) => {
+    const companyId = getCompanyId(req);
+    const { userId } = req.params;
+    const performedBy = req.user!.userId;
+
+    try {
+      await MemberService.softDeleteMember(companyId, userId, performedBy);
+      return res.json({ message: "Member berhasil dinonaktifkan" });
+    } catch (err: unknown) {
+      const error = err as { statusCode?: number; code?: string; message?: string };
+      if (error.statusCode === 404)
+        return res
+          .status(404)
+          .json({ error: { code: "NOT_FOUND", message: error.message } });
+      if (error.statusCode === 400)
+        return res
+          .status(400)
+          .json({ error: { code: error.code ?? "VALIDATION_ERROR", message: error.message } });
+      if (error.statusCode === 403)
+        return res
+          .status(403)
+          .json({ error: { code: "FORBIDDEN", message: error.message } });
+      console.error("[members] softDeleteMember error:", error.message);
+      return res
+        .status(500)
+        .json({
+          error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+        });
+    }
+  },
+);
+
+/**
+ * PATCH /api/companies/:companyId/members/:userId/restore
+ * Restore a soft-deleted member
+ */
+router.patch(
+  ["/:companyId/members/:userId/restore", "/:companyId/members/:userId/restore"],
   authMiddleware,
   rbacMiddleware("club_owner"),
   tenantMiddleware,
   async (req: Request, res: Response) => {
     const companyId = getCompanyId(req);
     const { userId } = req.params;
+    const performedBy = req.user!.userId;
 
     try {
-      await MemberService.deactivateMember(companyId, userId);
-      return res.json({ message: "Member berhasil dinonaktifkan" });
+      await MemberService.restoreMember(companyId, userId, performedBy);
+      return res.json({ message: "Member berhasil diaktifkan kembali" });
     } catch (err: unknown) {
-      const error = err as { statusCode?: number; message?: string };
+      const error = err as { statusCode?: number; code?: string; message?: string };
       if (error.statusCode === 404)
         return res
           .status(404)
           .json({ error: { code: "NOT_FOUND", message: error.message } });
-      console.error("[members] deactivateMember error:", error.message);
+      if (error.statusCode === 400)
+        return res
+          .status(400)
+          .json({ error: { code: error.code ?? "VALIDATION_ERROR", message: error.message } });
+      console.error("[members] restoreMember error:", error.message);
+      return res
+        .status(500)
+        .json({
+          error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+        });
+    }
+  },
+);
+
+/**
+ * DELETE /api/companies/:companyId/members/:userId/permanent
+ * Hard delete a member permanently
+ */
+router.delete(
+  ["/:companyId/members/:userId/permanent", "/:companyId/members/:userId/permanent"],
+  authMiddleware,
+  rbacMiddleware("super_admin"),
+  tenantMiddleware,
+  async (req: Request, res: Response) => {
+    const companyId = getCompanyId(req);
+    const { userId } = req.params;
+    const { confirmation_name } = req.body;
+    const performedBy = req.user!.userId;
+
+    if (!confirmation_name) {
+      return res.status(400).json({
+        error: { code: "VALIDATION_ERROR", message: "Nama konfirmasi tidak sesuai" },
+      });
+    }
+
+    try {
+      await MemberService.hardDeleteMember(companyId, userId, confirmation_name, performedBy);
+      return res.json({ message: "Member berhasil dihapus permanen" });
+    } catch (err: unknown) {
+      const error = err as { statusCode?: number; code?: string; message?: string };
+      if (error.statusCode === 404)
+        return res
+          .status(404)
+          .json({ error: { code: "NOT_FOUND", message: error.message } });
+      if (error.statusCode === 400)
+        return res
+          .status(400)
+          .json({ error: { code: error.code ?? "VALIDATION_ERROR", message: error.message } });
+      if (error.statusCode === 403)
+        return res
+          .status(403)
+          .json({ error: { code: "FORBIDDEN", message: error.message } });
+      if (error.statusCode === 409)
+        return res
+          .status(409)
+          .json({ error: { code: "SESSION_CONFLICT", message: error.message } });
+      console.error("[members] hardDeleteMember error:", error.message);
       return res
         .status(500)
         .json({
@@ -324,6 +423,7 @@ router.get(
   tenantMiddleware,
   async (req: Request, res: Response) => {
     const { userId } = req.params;
+    const companyId = getCompanyId(req);
     const user = req.user!;
 
     if (user.role === "member" && user.userId !== userId) {
@@ -338,11 +438,53 @@ router.get(
     }
 
     try {
-      const devices = await DeviceService.listDevices(userId);
+      const devices = await DeviceService.listActiveUserDevices(userId, companyId);
       return res.json({ devices });
     } catch (err: unknown) {
       const error = err as { message?: string };
-      console.error("[devices] listDevices error:", error.message);
+      console.error("[devices] listActiveUserDevices error:", error.message);
+      return res
+        .status(500)
+        .json({
+          error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+        });
+    }
+  },
+);
+
+/**
+ * POST /api/companies/:companyId/members/:userId/devices/:deviceId/default
+ */
+router.post(
+  ["/:companyId/members/:userId/devices/:deviceId/default", "/:companyId/members/:userId/devices/:deviceId/default"],
+  authMiddleware,
+  tenantMiddleware,
+  async (req: Request, res: Response) => {
+    const { userId, deviceId } = req.params;
+    const user = req.user!;
+
+    if (user.role === "member" && user.userId !== userId) {
+      return res
+        .status(403)
+        .json({
+          error: {
+            code: "FORBIDDEN",
+            message: "Member hanya dapat menyetel perangkat miliknya sendiri",
+          },
+        });
+    }
+
+    try {
+      await DeviceService.setDefaultDevice(userId, deviceId);
+      return res.json({ message: "Perangkat default berhasil disetel" });
+    } catch (err: unknown) {
+      const error = err as { statusCode?: number; message?: string };
+      if (error.statusCode === 404) {
+        return res.status(404).json({
+          error: { code: "NOT_FOUND", message: error.message },
+        });
+      }
+      console.error("[devices] setDefaultDevice error:", error.message);
       return res
         .status(500)
         .json({

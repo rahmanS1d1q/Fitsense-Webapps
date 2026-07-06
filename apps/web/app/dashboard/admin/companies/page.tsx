@@ -3,7 +3,14 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "../../../../components/Navbar";
-import { apiGet } from "../../../../lib/api";
+import PageHeader from "../../../../components/PageHeader";
+import {
+  PageContainer,
+  PageSection,
+  Card,
+} from "../../../../components/layout/PageContainer";
+import { apiGet, apiDelete, apiPatch } from "../../../../lib/api";
+import DeleteConfirmDialog from "../../../../components/common/DeleteConfirmDialog";
 
 interface Company {
   id: string;
@@ -18,7 +25,15 @@ export default function CompaniesListPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Dialog states
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"soft" | "hard">("soft");
+  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
   const load = useCallback(async () => {
+    setLoading(true);
     const { ok, data } = await apiGet("/admin/companies");
     if (ok) setCompanies(data.companies ?? []);
     setLoading(false);
@@ -28,120 +43,225 @@ export default function CompaniesListPage() {
     load();
   }, [load]);
 
+  const handleSuspendClick = (company: Company) => {
+    setSelectedCompany(company);
+    setDialogMode("soft");
+    setDialogOpen(true);
+    setErrorMsg("");
+  };
+
+  const handlePermanentDeleteClick = (company: Company) => {
+    setSelectedCompany(company);
+    setDialogMode("hard");
+    setDialogOpen(true);
+    setErrorMsg("");
+  };
+
+  const handleDialogConfirm = async (confirmationName?: string) => {
+    if (!selectedCompany) return;
+    setIsBusy(true);
+    setErrorMsg("");
+
+    try {
+      if (dialogMode === "soft") {
+        // Suspend company
+        const { ok, data } = await apiDelete(`/companies/${selectedCompany.id}`);
+        if (ok) {
+          setDialogOpen(false);
+          load();
+        } else {
+          setErrorMsg(data?.error?.message ?? "Gagal menonaktifkan company");
+        }
+      } else {
+        // Permanent delete
+        const { ok, data } = await apiDelete(`/companies/${selectedCompany.id}/permanent`, {
+          confirmation_name: confirmationName,
+        });
+        if (ok) {
+          setDialogOpen(false);
+          load();
+        } else {
+          setErrorMsg(data?.error?.message ?? "Gagal menghapus permanen company");
+        }
+      }
+    } catch {
+      setErrorMsg("Terjadi kesalahan koneksi");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
       <Navbar />
-      <div style={{ padding: "28px 24px", maxWidth: 900, margin: "0 auto" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 24,
-          }}
-        >
-          <div>
-            <h1
+      <PageContainer maxWidth="5xl">
+        <PageHeader
+          title="Manajemen Company"
+          subtitle="Kelola dan pantau seluruh tenant/company di platform FitSense"
+          right={
+            <button
+              onClick={() => router.push("/dashboard/admin/companies/new")}
               style={{
-                margin: 0,
-                fontSize: 24,
-                fontWeight: 700,
-                color: "#0f172a",
+                padding: "8px 16px",
+                backgroundColor: "#059669",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "8px",
+                fontWeight: 600,
+                fontSize: "14px",
+                cursor: "pointer",
               }}
             >
-              Companies
-            </h1>
-            <p style={{ margin: "4px 0 0", fontSize: 14, color: "#64748b" }}>
-              {companies.length} company terdaftar
-            </p>
-          </div>
-          <button
-            onClick={() => router.push("/dashboard/admin/companies/new")}
-            style={{
-              padding: "10px 20px",
-              background: "linear-gradient(135deg, #059669, #047857)",
-              color: "#fff",
-              border: "none",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontWeight: 600,
-              fontSize: 14,
-              boxShadow: "0 2px 8px rgba(5,150,105,0.3)",
-            }}
-          >
-            + Buat Company
-          </button>
-        </div>
+              + Buat Company
+            </button>
+          }
+        />
 
-        {loading ? (
-          <p style={{ color: "#64748b" }}>Memuat...</p>
-        ) : companies.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "60px 24px",
-              background: "#fff",
-              borderRadius: 12,
-              border: "1px solid #e2e8f0",
-            }}
-          >
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🏢</div>
-            <p style={{ fontSize: 16, color: "#64748b", fontWeight: 500 }}>
-              Belum ada company
-            </p>
-            <p style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>
-              Klik tombol di atas untuk membuat company pertama
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: "grid", gap: 12 }}>
-            {companies.map((c) => (
-              <div
-                key={c.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "16px 20px",
-                  background: "#fff",
-                  borderRadius: 12,
-                  border: "1px solid #e2e8f0",
-                }}
-              >
-                <div>
-                  <div
-                    style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}
-                  >
-                    {c.name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: "#64748b",
-                      fontFamily: "monospace",
-                      marginTop: 2,
-                    }}
-                  >
-                    {c.slug}
-                  </div>
-                </div>
-                <span
-                  style={{
-                    padding: "3px 12px",
-                    borderRadius: 20,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    background: c.status === "active" ? "#d1fae5" : "#fee2e2",
-                    color: c.status === "active" ? "#059669" : "#dc2626",
-                  }}
-                >
-                  {c.status}
-                </span>
+        <PageSection>
+          <Card>
+            {loading ? (
+              <div style={{ padding: "32px", textAlign: "center", color: "#64748b" }}>Memuat data...</div>
+            ) : companies.length === 0 ? (
+              <div style={{ padding: "48px 24px", textAlign: "center", color: "#64748b" }}>
+                <span style={{ fontSize: "32px", display: "block", marginBottom: "8px" }}>🏢</span>
+                Belum ada company terdaftar
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #e2e8f0", color: "#64748b", fontSize: "13px", fontWeight: 600 }}>
+                      <th style={{ padding: "12px 16px" }}>Nama Company</th>
+                      <th style={{ padding: "12px 16px" }}>Slug</th>
+                      <th style={{ padding: "12px 16px" }}>Status</th>
+                      <th style={{ padding: "12px 16px" }}>Tanggal Terdaftar</th>
+                      <th style={{ padding: "12px 16px" }}>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {companies.map((c) => {
+                      const isSuspended = c.status === "suspended";
+
+                      return (
+                        <tr
+                          key={c.id}
+                          style={{
+                            borderBottom: "1px solid #f1f5f9",
+                            opacity: isSuspended ? 0.6 : 1,
+                            transition: "opacity 0.2s",
+                          }}
+                        >
+                          <td style={{ padding: "16px", fontWeight: 500, color: "#1e293b" }}>{c.name}</td>
+                          <td style={{ padding: "16px", color: "#475569", fontFamily: "monospace" }}>{c.slug}</td>
+                          <td style={{ padding: "16px" }}>
+                            {isSuspended ? (
+                              <span
+                                style={{
+                                  padding: "3px 8px",
+                                  backgroundColor: "#fee2e2",
+                                  color: "#ef4444",
+                                  borderRadius: "6px",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Suspended
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  padding: "3px 8px",
+                                  backgroundColor: "#dcfce7",
+                                  color: "#22c55e",
+                                  borderRadius: "6px",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Active
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: "16px", color: "#64748b" }}>
+                            {c.created_at ? new Date(c.created_at).toLocaleDateString("id-ID") : "-"}
+                          </td>
+                          <td style={{ padding: "16px" }}>
+                            <div style={{ display: "flex", gap: "8px" }}>
+                              {!isSuspended && (
+                                <button
+                                  onClick={() => handleSuspendClick(c)}
+                                  style={{
+                                    padding: "6px 12px",
+                                    backgroundColor: "#fff",
+                                    color: "#d97706",
+                                    border: "1px solid #f59e0b",
+                                    borderRadius: "6px",
+                                    fontSize: "13px",
+                                    fontWeight: 500,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Suspend
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handlePermanentDeleteClick(c)}
+                                style={{
+                                  padding: "6px 12px",
+                                  backgroundColor: "#fee2e2",
+                                  color: "#dc2626",
+                                  border: "none",
+                                  borderRadius: "6px",
+                                  fontSize: "13px",
+                                  fontWeight: 600,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Hapus Permanen
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </PageSection>
+      </PageContainer>
+
+      {selectedCompany && (
+        <DeleteConfirmDialog
+          isOpen={dialogOpen}
+          mode={dialogMode}
+          entityType="company"
+          entityName={selectedCompany.name}
+          onConfirm={handleDialogConfirm}
+          onCancel={() => setDialogOpen(false)}
+          isBusy={isBusy}
+        />
+      )}
+
+      {errorMsg && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            padding: "12px 20px",
+            backgroundColor: "#ef4444",
+            color: "#ffffff",
+            borderRadius: "8px",
+            fontSize: "14px",
+            fontWeight: 500,
+            zIndex: 99999,
+          }}
+        >
+          {errorMsg}
+        </div>
+      )}
     </div>
   );
 }

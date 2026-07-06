@@ -284,7 +284,7 @@ router.post("/register-club", async (req: Request, res: Response) => {
  * Requirements: 18.2–18.7
  */
 router.post("/register-member", async (req: Request, res: Response) => {
-  const { code, firstName, lastName, name, email, password, age } = req.body;
+  const { code, firstName, lastName, name, email, password, date_of_birth } = req.body;
 
   // Support both firstName and legacy name field
   const resolvedFirstName =
@@ -308,7 +308,7 @@ router.post("/register-member", async (req: Request, res: Response) => {
       lastName: resolvedLastName,
       email,
       password,
-      age,
+      date_of_birth,
     });
     return res.status(201).json(result);
   } catch (err: unknown) {

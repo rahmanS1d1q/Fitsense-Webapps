@@ -3,7 +3,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { passwordSchema } from "../../../lib/schemas/password";
 
@@ -20,7 +20,7 @@ const schema = z
 type Form = z.infer<typeof schema>;
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-export default function ResetPasswordPage() {
+function ResetPasswordForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const [done, setDone] = useState(false);
@@ -248,5 +248,27 @@ export default function ResetPasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          style={{
+            minHeight: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)",
+          }}
+        >
+          <div style={{ color: "#fff", fontSize: 16 }}>Memuat...</div>
+        </div>
+      }
+    >
+      <ResetPasswordForm />
+    </Suspense>
   );
 }

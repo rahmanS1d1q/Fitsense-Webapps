@@ -1,9 +1,10 @@
 # ============================================
-# FitSense Platform - .gitignore
+# FitSense Platform — .gitignore
+# Target: GitHub push, Ubuntu 24.04 + Docker deployment
 # ============================================
 
 # ─────────────────────────────────────────────
-# Environment & Secrets
+# Environment & Secrets (JANGAN PERNAH PUSH)
 # ─────────────────────────────────────────────
 .env
 .env.local
@@ -11,8 +12,6 @@
 .env.production
 .env.development
 .env.test
-
-# Backup env files
 *.env.backup
 .env.*.backup
 
@@ -29,11 +28,10 @@ lerna-debug.log*
 # Build outputs
 dist/
 build/
-.next/
 out/
 
-# Dependency directories
-jspm_packages/
+# Next.js
+.next/
 
 # TypeScript cache
 *.tsbuildinfo
@@ -43,8 +41,6 @@ jspm_packages/
 coverage/
 .nyc_output/
 *.lcov
-
-# Jest
 .jest-cache/
 
 # ─────────────────────────────────────────────
@@ -62,22 +58,16 @@ ENV/
 env/
 .python-version
 
-# PyTest
+# PyTest & Testing
 .pytest_cache/
 .hypothesis/
-
-# MyPy
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Jupyter Notebook
 .ipynb_checkpoints
 
-# Python distribution / packaging
+# Python packaging
 *.egg-info/
-dist/
-build/
 eggs/
 .eggs/
 lib/
@@ -101,29 +91,20 @@ celerybeat.pid
 # ─────────────────────────────────────────────
 docker-compose.override.yml
 .docker/
-
-# Docker volumes (jika ada local mount)
 volumes/
 data/
 
 # ─────────────────────────────────────────────
 # Database & Storage
 # ─────────────────────────────────────────────
-# PostgreSQL
 *.sql.backup
 *.dump
 postgres-data/
-
-# InfluxDB
 influxdb-data/
 influxdb2-data/
-
-# Redis
 redis-data/
 dump.rdb
 appendonly.aof
-
-# SQLite (jika ada testing local)
 *.db
 *.sqlite
 *.sqlite3
@@ -140,19 +121,10 @@ emqx/plugins/
 # ─────────────────────────────────────────────
 logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-pnpm-debug.log*
-
-# Application logs
 app.log
 error.log
 access.log
 combined.log
-
-# PM2 logs
 .pm2/
 
 # ─────────────────────────────────────────────
@@ -165,8 +137,6 @@ combined.log
 *.p12
 *.pfx
 nginx/ssl/
-
-# Let's Encrypt
 certbot/
 
 # ─────────────────────────────────────────────
@@ -176,30 +146,23 @@ uploads/
 media/
 assets/storage/
 public/uploads/
-
-# Temporary files
+apps/api/uploads/
 tmp/
 temp/
 *.tmp
 
 # ─────────────────────────────────────────────
-# IDE & Editor
+# AI Tools & IDE Local Config
 # ─────────────────────────────────────────────
-# VSCode
-.vscode/
-!.vscode/extensions.json
-!.vscode/settings.json.example
-*.code-workspace
+# Gemini / Antigravity AI assistant
+.gemini/
 
-# Kiro AI (development tool)
+# Kiro AI
 .kiro/
 
-# Spec files (optional - uncomment jika tidak ingin track)
-# *.spec.md
-# fitsense.spec.md
-
-# Git commit templates
-.git/COMMIT_EDITMSG_TEMPLATE.txt
+# VSCode — abaikan seluruh folder (settings.json hanya berisi konfigurasi Kiro AI lokal)
+.vscode/
+*.code-workspace
 
 # IntelliJ IDEA
 .idea/
@@ -211,14 +174,11 @@ temp/
 *.sublime-project
 *.sublime-workspace
 
-# Vim
+# Vim / Emacs
 *.swp
 *.swo
 *~
 .*.sw[a-p]
-
-# Emacs
-*~
 \#*\#
 .\#*
 
@@ -247,15 +207,40 @@ $RECYCLE.BIN/
 .Trash-*
 
 # ─────────────────────────────────────────────
+# Root-level Markdown Reports (auto-generated, tidak perlu di-repo)
+# CATATAN: README.md dan .env.example dikecualikan (lihat bagian Keep Files)
+# ─────────────────────────────────────────────
+API_DOCUMENTATION.md
+API_ENDPOINTS.md
+BACKEND_IMPLEMENTATION_STATUS.md
+BUILD_SUCCESS_REPORT.md
+CPANEL_DEPLOYMENT.md
+DEPLOYMENT_GUIDE.md
+LAYOUT_STANDARDIZATION_REPORT.md
+MQTT_GUIDE_SUMMARY.md
+MQTT_IMPLEMENTATION_GUIDE.md
+TEST_REPORT_API.md
+*.spec.md
+*.README.md
+fitsense.spec.md
+
+# ─────────────────────────────────────────────
+# Documentation folder (internal, tidak perlu di-repo)
+# ─────────────────────────────────────────────
+docs/
+
+# ─────────────────────────────────────────────
+# Web Public folder — aset AI/scratch, bukan aset web
+# ─────────────────────────────────────────────
+apps/web/public/walkthrough.md
+
+# ─────────────────────────────────────────────
 # Testing & CI/CD
 # ─────────────────────────────────────────────
-# Test artifacts
 test-results/
 test-reports/
 screenshots/
 videos/
-
-# Playwright
 playwright-report/
 playwright/.cache/
 
@@ -266,16 +251,15 @@ playwright/.cache/
 *.backup
 *.old
 *.orig
-*.swp
-*.swo
 *.tar.gz
 *.zip
 *.rar
+*.tgz
+commit-cleanup.txt
 
 # ─────────────────────────────────────────────
 # Project Specific
 # ─────────────────────────────────────────────
-# Generated files
 apps/api/migrations/*.backup.sql
 apps/ml/models/trained/
 scripts/*.backup.sh
@@ -288,41 +272,26 @@ local-config/
 docs/_build/
 site/
 
-# Grafana data
+# Grafana runtime data
 grafana/data/
 
 # ─────────────────────────────────────────────
 # Security & Sensitive Data
 # ─────────────────────────────────────────────
-# SSH keys
 id_rsa
 id_rsa.pub
 id_ed25519
 id_ed25519.pub
-
-# API keys & tokens
 .secrets/
 secrets/
 *.secret
 *.token
 .credentials
-
-# Password files
 passwords.txt
 credentials.txt
 
 # ─────────────────────────────────────────────
-# Package Manager Locks (optional - comment out if you want to track them)
-# ─────────────────────────────────────────────
-# Uncomment below if you don't want to track lock files
-# package-lock.json
-# yarn.lock
-# pnpm-lock.yaml
-# poetry.lock
-# Pipfile.lock
-
-# ─────────────────────────────────────────────
-# Misc
+# Package Manager Misc
 # ─────────────────────────────────────────────
 .cache/
 .parcel-cache/
@@ -330,52 +299,29 @@ credentials.txt
 *.pid
 *.seed
 *.pid.lock
-
-# ESLint cache
 .eslintcache
-
-# Stylelint cache
 .stylelintcache
-
-# Next.js cache
-.next/
-out/
-
-# Sentry
 .sentryclirc
-
-# Vercel
 .vercel
-
-# TypeScript incremental build
-*.tsbuildinfo
-
-# Optional npm cache directory
 .npm
-
-# Optional eslint cache
-.eslintcache
-
-# Microbundle cache
 .rpt2_cache/
 .rts2_cache_cjs/
 .rts2_cache_es/
 .rts2_cache_umd/
-
-# Optional REPL history
 .node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
 .yarn-integrity
+jspm_packages/
 
 # ─────────────────────────────────────────────
-# Keep Files (exceptions to ignore rules)
+# Keep Files (exceptions — wajib di-track)
 # ─────────────────────────────────────────────
+!README.md
 !.env.example
-!.vscode/settings.json.example
 !.gitkeep
-.kiro
-.vscode
+!apps/api/migrations/*.sql
+!grafana/provisioning/**
+!emqx/emqx.conf
+!emqx/acl.conf
+!nginx/nginx.conf
+!scripts/db-clean.sh
+!scripts/test-setup.sh

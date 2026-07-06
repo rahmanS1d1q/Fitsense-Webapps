@@ -1,4 +1,5 @@
-version: "3.9"
+# docker-compose.yml — FitSense Platform
+# Web: :3000, API: :3001, ML: :8000, Grafana: :3030
 
 services:
   nginx:
@@ -72,11 +73,15 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_MQTT_URL: ${NEXT_PUBLIC_MQTT_URL}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_MQTT_URL: ${NEXT_PUBLIC_MQTT_URL}
     ports:
       - "3000:3000"
+    restart: unless-stopped
     depends_on:
       - api
 
@@ -127,10 +132,11 @@ services:
   grafana:
     image: grafana/grafana:10.4.0
     ports:
-      - "3000:3000"
+      - "3030:3000"  # Grafana dipindah ke :3030 (web pakai :3000)
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
+    restart: unless-stopped
     depends_on:
       - influxdb
       - postgres

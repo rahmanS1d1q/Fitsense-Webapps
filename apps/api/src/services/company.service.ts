@@ -4,6 +4,8 @@
  */
 
 import { getPool } from "../db/client";
+import { getRedis } from "../db/redis";
+import * as auditLogService from "./audit-log.service";
 
 export interface Company {
   id: string;
@@ -26,7 +28,7 @@ export function validateSlug(slug: string): boolean {
 export async function listCompanies(): Promise<Company[]> {
   const pool = getPool();
   const result = await pool.query(
-    "SELECT id, name, slug, address, phone, status, asset_id, created_at, updated_at FROM companies ORDER BY created_at DESC",
+    "SELECT id, name, slug, address, phone, status, asset_id, created_at, updated_at FROM companies WHERE deleted_at IS NULL ORDER BY created_at DESC",
   );
   return result.rows as Company[];
 }
@@ -97,7 +99,7 @@ export async function updateCompany(
   return result.rows[0] as Company;
 }
 
-export async function suspendCompany(companyId: string): Promise<void> {
+export async function suspendCompany(companyId: string, performedBy: string): Promise<void> {
   const pool = getPool();
   const client = await pool.connect();
 
@@ -105,7 +107,7 @@ export async function suspendCompany(companyId: string): Promise<void> {
     await client.query("BEGIN");
 
     const companyResult = await client.query(
-      "UPDATE companies SET status = 'suspended', updated_at = NOW() WHERE id = $1 RETURNING id",
+      "UPDATE companies SET status = 'suspended', updated_at = NOW() WHERE id = $1 RETURNING id, name",
       [companyId],
     );
 
@@ -113,12 +115,36 @@ export async function suspendCompany(companyId: string): Promise<void> {
       throw Object.assign(new Error("Company not found"), { statusCode: 404 });
     }
 
+    const company = companyResult.rows[0];
+
     // Revoke access for all users in the company via users_companies
     await client.query(
       `UPDATE users SET status = 'inactive', updated_at = NOW()
        WHERE id IN (SELECT user_id FROM users_companies WHERE company_id = $1)`,
       [companyId],
     );
+
+    // Invalidate Redis tokens for all users in the company
+    const userIdsResult = await client.query(
+      "SELECT user_id FROM users_companies WHERE company_id = $1",
+      [companyId]
+    );
+    const redis = getRedis();
+    for (const row of userIdsResult.rows) {
+      await redis.del(`refresh_token:${row.user_id}`);
+    }
+
+    // Record audit log
+    await auditLogService.log({
+      action: "suspend_company",
+      entityType: "company",
+      entityId: companyId,
+      entityData: {
+        id: company.id,
+        name: company.name,
+      },
+      performedBy,
+    });
 
     await client.query("COMMIT");
   } catch (err) {
@@ -128,3 +154,110 @@ export async function suspendCompany(companyId: string): Promise<void> {
     client.release();
   }
 }
+
+export async function hardDeleteCompany(
+  companyId: string,
+  confirmationName: string,
+  performedBy: string,
+): Promise<void> {
+  const pool = getPool();
+
+  const check = await pool.query(
+    "SELECT id, name FROM companies WHERE id = $1 AND deleted_at IS NULL",
+    [companyId],
+  );
+
+  if (check.rows.length === 0) {
+    throw Object.assign(new Error("Company tidak ditemukan"), { statusCode: 404 });
+  }
+
+  const company = check.rows[0];
+
+  if (confirmationName !== company.name) {
+    throw Object.assign(new Error("Nama konfirmasi tidak sesuai"), { statusCode: 400 });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Record audit log before delete
+    await auditLogService.log({
+      action: "hard_delete",
+      entityType: "company",
+      entityId: companyId,
+      entityData: {
+        id: company.id,
+        name: company.name,
+      },
+      performedBy,
+    });
+
+    // Invalidate Redis tokens for all users in the company
+    const userIdsResult = await client.query(
+      "SELECT user_id FROM users_companies WHERE company_id = $1",
+      [companyId]
+    );
+    const redis = getRedis();
+    for (const row of userIdsResult.rows) {
+      await redis.del(`refresh_token:${row.user_id}`);
+    }
+
+    // Delete from companies — CASCADE handles the rest
+    await client.query("DELETE FROM companies WHERE id = $1", [companyId]);
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function activateCompany(companyId: string, performedBy: string): Promise<void> {
+  const pool = getPool();
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const companyResult = await client.query(
+      "UPDATE companies SET status = 'active', updated_at = NOW() WHERE id = $1 RETURNING id, name",
+      [companyId],
+    );
+
+    if (companyResult.rows.length === 0) {
+      throw Object.assign(new Error("Company not found"), { statusCode: 404 });
+    }
+
+    const company = companyResult.rows[0];
+
+    // Activate all users in the company
+    await client.query(
+      `UPDATE users SET status = 'active', updated_at = NOW()
+       WHERE id IN (SELECT user_id FROM users_companies WHERE company_id = $1)`,
+      [companyId],
+    );
+
+    // Record audit log
+    await auditLogService.log({
+      action: "activate_company",
+      entityType: "company",
+      entityId: companyId,
+      entityData: {
+        id: company.id,
+        name: company.name,
+      },
+      performedBy,
+    });
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+

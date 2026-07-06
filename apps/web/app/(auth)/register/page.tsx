@@ -3,7 +3,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { passwordSchema } from "../../../lib/schemas/password";
 
@@ -12,13 +12,24 @@ const schema = z.object({
   lastName: z.string().min(1, "Nama belakang wajib diisi"),
   email: z.string().email("Email tidak valid"),
   password: passwordSchema,
-  age: z.number({ required_error: "Usia wajib diisi" }).int().min(10).max(100),
+  date_of_birth: z.string({ required_error: "Tanggal lahir wajib diisi" })
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal lahir: YYYY-MM-DD')
+    .refine((val) => {
+      const date = new Date(val);
+      const today = new Date();
+      let age = today.getFullYear() - date.getFullYear();
+      const m = today.getMonth() - date.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < date.getDate())) {
+        age--;
+      }
+      return age >= 10 && age <= 100;
+    }, 'Usia harus antara 10 dan 100 tahun'),
 });
 
 type Form = z.infer<typeof schema>;
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const inviteCode = searchParams.get("invite") ?? "";
@@ -28,8 +39,24 @@ export default function RegisterPage() {
     register,
     handleSubmit,
     setError,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<Form>({ resolver: zodResolver(schema) });
+
+  const dateOfBirth = watch("date_of_birth");
+  const getCalculatedAge = (dobString: string) => {
+    if (!dobString) return null;
+    const date = new Date(dobString);
+    if (isNaN(date.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - date.getFullYear();
+    const m = today.getMonth() - date.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < date.getDate())) {
+      age--;
+    }
+    return age;
+  };
+  const calculatedAge = getCalculatedAge(dateOfBirth);
 
   const onSubmit = async (data: Form) => {
     if (!inviteCode) {
@@ -46,7 +73,7 @@ export default function RegisterPage() {
         lastName: data.lastName,
         email: data.email,
         password: data.password,
-        age: data.age,
+        date_of_birth: data.date_of_birth,
       }),
     });
 
@@ -365,7 +392,7 @@ export default function RegisterPage() {
               </div>
               <div style={{ marginBottom: 20 }}>
                 <label
-                  htmlFor="age"
+                  htmlFor="date_of_birth"
                   style={{
                     display: "block",
                     marginBottom: 6,
@@ -374,17 +401,16 @@ export default function RegisterPage() {
                     color: "#374151",
                   }}
                 >
-                  Usia *
+                  Tanggal Lahir *
                 </label>
                 <input
-                  id="age"
-                  type="number"
-                  {...register("age", { valueAsNumber: true })}
-                  placeholder="25"
+                  id="date_of_birth"
+                  type="date"
+                  {...register("date_of_birth")}
                   style={{
                     width: "100%",
                     padding: "11px 14px",
-                    border: errors.age
+                    border: errors.date_of_birth
                       ? "1.5px solid #dc2626"
                       : "1.5px solid #e5e7eb",
                     borderRadius: 10,
@@ -393,15 +419,20 @@ export default function RegisterPage() {
                     background: "#f9fafb",
                   }}
                 />
-                {errors.age && (
+                {calculatedAge !== null && !errors.date_of_birth && (
+                  <p style={{ margin: "6px 0 0", fontSize: 13, color: "#4b5563" }}>
+                    Usia saat ini: <strong>{calculatedAge} tahun</strong> (dihitung otomatis)
+                  </p>
+                )}
+                {errors.date_of_birth && (
                   <p
-                    style={{
-                      margin: "4px 0 0",
-                      fontSize: 12,
-                      color: "#dc2626",
-                    }}
+                     style={{
+                       margin: "4px 0 0",
+                       fontSize: 12,
+                       color: "#dc2626",
+                     }}
                   >
-                    {errors.age.message}
+                    {errors.date_of_birth.message}
                   </p>
                 )}
               </div>
@@ -450,5 +481,27 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          style={{
+            minHeight: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)",
+          }}
+        >
+          <div style={{ color: "#fff", fontSize: 16 }}>Memuat...</div>
+        </div>
+      }
+    >
+      <RegisterForm />
+    </Suspense>
   );
 }

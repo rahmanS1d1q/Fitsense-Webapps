@@ -109,6 +109,17 @@ async function callMlAnalyzeSession(
   userId: string,
   companyId: string,
 ): Promise<void> {
+  // Skip ML service if not configured
+  if (
+    !config.ml.serviceUrl ||
+    config.ml.serviceUrl === "http://localhost:8000"
+  ) {
+    console.log(
+      "[orphan-job] ML service not configured, skipping session analysis",
+    );
+    return;
+  }
+
   try {
     await fetch(`${config.ml.serviceUrl}/ml/analyze-session`, {
       method: "POST",

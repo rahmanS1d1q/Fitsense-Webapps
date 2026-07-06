@@ -1,13 +1,15 @@
 /**
- * HRZoneClassifier — Klasifikasi zona HR berdasarkan usia member.
+ * HRZoneClassifier - Klasifikasi zona HR berdasarkan usia member atau tanggal lahir.
  *
  * Requirements: 7.5, 7.6, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
  */
 
+import { calculateAge } from "./member.service";
+
 export type HRZone = "rest" | "fat_burn" | "cardio" | "aerobic" | "peak" | "unknown";
 
 /**
- * Classifies a heart rate value into an HR zone based on the member's age.
+ * Classifies a heart rate value into an HR zone based on the member's age or date of birth.
  *
  * Max_HR = 220 - age
  * Thresholds:
@@ -20,8 +22,19 @@ export type HRZone = "rest" | "fat_burn" | "cardio" | "aerobic" | "peak" | "unkn
  *
  * Requirements: 7.5, 7.6, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
  */
-export function classifyZone(hr: number, age: number | null | undefined): HRZone {
-  if (!age) {
+export function classifyZone(hr: number, age: number | null | undefined): HRZone;
+export function classifyZone(hr: number, dateOfBirth: Date | string | null | undefined): HRZone;
+export function classifyZone(hr: number, ageOrDob: number | Date | string | null | undefined): HRZone {
+  let age: number | null | undefined = null;
+  if (ageOrDob instanceof Date || (typeof ageOrDob === "string" && isNaN(Number(ageOrDob)))) {
+    age = calculateAge(ageOrDob);
+  } else if (typeof ageOrDob === "number") {
+    age = ageOrDob;
+  } else if (typeof ageOrDob === "string" && !isNaN(Number(ageOrDob))) {
+    age = Number(ageOrDob);
+  }
+
+  if (!age || age <= 0) {
     console.warn(
       `[HRZoneClassifier] Usia tidak tersedia atau bernilai nol (age=${age}). Mengembalikan zona 'unknown'.`,
     );
