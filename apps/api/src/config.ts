@@ -34,11 +34,14 @@ export const config = {
     brokerInternal: process.env.MQTT_BROKER_INTERNAL || "mqtt://localhost:1883",
   },
 
+  // ML Feature Flag
+  // Set ML_ENABLED=true in .env only when the ML service is running and model is ready.
+  // When disabled, the API still processes MQTT heart rate data and saves to InfluxDB;
+  // it simply skips all calls to the ML anomaly-check endpoint.
   ml: {
     enabled: process.env.ML_ENABLED === "true",
     serviceUrl: process.env.ML_SERVICE_URL || "",
   },
-
 
   smtp: {
     host: process.env.SMTP_HOST || "smtp.example.com",
@@ -46,5 +49,10 @@ export const config = {
     user: process.env.SMTP_USER || "",
     pass: process.env.SMTP_PASS || "",
     from: process.env.SMTP_FROM || "FitSense <noreply@example.com>",
+  },
+
+  app: {
+    domain: process.env.APP_DOMAIN || "localhost",
+    corsOrigin: process.env.CORS_ORIGIN || "",
   },
 };

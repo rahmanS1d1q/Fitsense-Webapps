@@ -8,9 +8,9 @@ const PORT = config.port;
 app.listen(PORT, () => {
   console.log(`[API] FitSense API Server running on port ${PORT}`);
 
-  // Start MQTT Consumer — non-blocking, errors handled inside startMqttConsumer.
-  // API remains fully functional even if MQTT broker is temporarily unavailable.
-  // The consumer will auto-reconnect every 5s (reconnectPeriod in mqtt.consumer.ts).
+  // Start MQTT Consumer — non-blocking. startMqttConsumer() creates an async
+  // MQTT client and returns immediately. API stays up even if EMQX is slow to
+  // start; the consumer auto-reconnects every 5 s (reconnectPeriod).
   console.log("[API] Starting MQTT consumer...");
   startMqttConsumer();
 

@@ -39,7 +39,8 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       MQTT_TOKEN_EXPIRES_IN: ${MQTT_TOKEN_EXPIRES_IN}
       MQTT_BROKER_INTERNAL: ${MQTT_BROKER_INTERNAL}
-      ML_SERVICE_URL: ${ML_SERVICE_URL}
+      ML_ENABLED: ${ML_ENABLED:-false}
+      ML_SERVICE_URL: ${ML_SERVICE_URL:-}
       API_PORT: "3001"
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}
@@ -47,6 +48,7 @@ services:
       SMTP_PASS: ${SMTP_PASS}
       SMTP_FROM: ${SMTP_FROM}
       APP_DOMAIN: ${APP_DOMAIN}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
     # Port 3001 hanya expose ke loopback host — untuk debugging langsung.
     # Hapus baris ini di production jika tidak diperlukan (akses via Nginx).
     ports:
