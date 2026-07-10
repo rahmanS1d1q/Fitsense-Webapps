@@ -35,8 +35,10 @@ export const config = {
   },
 
   ml: {
-    serviceUrl: process.env.ML_SERVICE_URL || "http://localhost:8000",
+    enabled: process.env.ML_ENABLED === "true",
+    serviceUrl: process.env.ML_SERVICE_URL || "",
   },
+
 
   smtp: {
     host: process.env.SMTP_HOST || "smtp.example.com",

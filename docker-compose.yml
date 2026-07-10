@@ -1,18 +1,28 @@
-# docker-compose.yml — FitSense Platform
-# Web: :3000, API: :3001, ML: :8000, Grafana: :3030
+# docker-compose.yml — FitSense Platform (Production)
+# ─────────────────────────────────────────────────────────────────────────────
+# Fase awal (testing via IP): Nginx expose port 80 & 8084 (HTTP/WS tanpa SSL)
+# Fase production (domain+SSL): ganti ke port 443 & 8084 ssl di nginx.conf
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
+  # ── Reverse Proxy ─────────────────────────────────────────────────────────
   nginx:
     image: nginx:1.25-alpine
     ports:
-      - "443:443"
-      - "8084:8084"
+      - "80:80"       # HTTP — fase awal testing tanpa SSL
+      - "8084:8084"   # MQTT WebSocket (WS/WSS tergantung nginx.conf)
+      # - "443:443"   # HTTPS — aktifkan setelah SSL certificate tersedia
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Mount certbot SSL dir saat sudah ada domain:
+      # - /etc/letsencrypt:/etc/nginx/ssl:ro
     depends_on:
+      - web
       - api
       - emqx
+    restart: unless-stopped
 
+  # ── API Server (Express) ──────────────────────────────────────────────────
   api:
     build:
       context: ./apps/api
@@ -36,16 +46,25 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
       SMTP_FROM: ${SMTP_FROM}
+      APP_DOMAIN: ${APP_DOMAIN}
+    # Port 3001 hanya expose ke loopback host — untuk debugging langsung.
+    # Hapus baris ini di production jika tidak diperlukan (akses via Nginx).
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     depends_on:
       - postgres
       - influxdb
       - redis
       - emqx
+    restart: unless-stopped
 
+  # ── ML Service (FastAPI) ──────────────────────────────────────────────────
+  # DINONAKTIFKAN secara default — jalankan hanya jika model ML sudah siap.
+  # Untuk mengaktifkan: docker compose --profile ml up -d
   ml:
+    profiles: ["ml"]
     build:
+
       context: ./apps/ml
       dockerfile: Dockerfile
     environment:
@@ -61,14 +80,21 @@ services:
       ML_MQTT_USERNAME: ${ML_MQTT_USERNAME}
       ML_MQTT_PASSWORD: ${ML_MQTT_PASSWORD}
       ML_SERVICE_PORT: "8000"
+    # Port 8000 hanya expose ke loopback host — untuk debugging langsung.
+    # Hapus baris ini di production jika tidak diperlukan (akses via api internal).
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       - postgres
       - influxdb
       - redis
       - emqx
+    restart: unless-stopped
 
+  # ── Next.js Web Dashboard ─────────────────────────────────────────────────
+  # CATATAN PENTING: NEXT_PUBLIC_* di-bundle ke JavaScript browser saat build.
+  # Nilai harus berupa URL publik VPS (bukan nama service Docker).
+  # Set di .env VPS: NEXT_PUBLIC_API_URL=http://YOUR_VPS_IP/api
   web:
     build:
       context: ./apps/web
@@ -79,60 +105,79 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_MQTT_URL: ${NEXT_PUBLIC_MQTT_URL}
+    # Tidak perlu expose port web ke publik — akses via Nginx port 80/443
+    # Hapus baris ports ini setelah yakin Nginx routing berjalan benar.
     ports:
-      - "3000:3000"
-    restart: unless-stopped
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
+    restart: unless-stopped
 
+  # ── MQTT Broker (EMQX) ────────────────────────────────────────────────────
   emqx:
     image: emqx:5
     ports:
-      - "1883:1883"
-      - "8083:8083"
+      # Port 1883 & 8083 dipakai internal Docker oleh api & ml service.
+      # Binding ke 127.0.0.1 agar tidak terbuka ke internet tanpa autentikasi TLS.
+      - "127.0.0.1:1883:1883"   # MQTT TCP (internal)
+      - "127.0.0.1:8083:8083"   # MQTT WebSocket (internal, di-proxy Nginx ke :8084)
+      # EMQX Dashboard — hanya untuk debugging. Hapus atau bind loopback di prod.
+      # - "127.0.0.1:18083:18083"
     volumes:
       - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
       - emqx_data:/opt/emqx/data
     environment:
       EMQX_NODE__NAME: emqx@127.0.0.1
       EMQX_NODE__COOKIE: fitsense-emqx-cookie
+    restart: unless-stopped
 
+  # ── InfluxDB ──────────────────────────────────────────────────────────────
   influxdb:
     image: influxdb:2.7
+    # Port 8086 hanya untuk debugging dari host. Bind loopback di production.
     ports:
-      - "8086:8086"
+      - "127.0.0.1:8086:8086"
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_INIT_PASSWORD:-adminpassword}
       DOCKER_INFLUXDB_INIT_ORG: fitsense
       DOCKER_INFLUXDB_INIT_BUCKET: heartrate
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
     volumes:
       - influxdb_data:/var/lib/influxdb2
+    restart: unless-stopped
 
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
+    # Port 5432 hanya untuk debugging dari host. Bind loopback di production.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: fitsense
       POSTGRES_USER: fitsense
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
+  # ── Redis ─────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
+    # Port 6379 hanya untuk debugging dari host. Bind loopback di production.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
+    restart: unless-stopped
 
+  # ── Grafana (Monitoring) ──────────────────────────────────────────────────
   grafana:
     image: grafana/grafana:10.4.0
+    # Grafana hanya untuk internal admin. Bind loopback + akses via SSH tunnel.
     ports:
-      - "3030:3000"  # Grafana dipindah ke :3030 (web pakai :3000)
+      - "127.0.0.1:3030:3000"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana

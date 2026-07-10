@@ -125,12 +125,9 @@ async function autoAssignDevice(
 }
 
 async function callMlAnomalyCheck(point: HRDataPoint): Promise<void> {
-  // Skip ML service if not configured
-  if (
-    !config.ml.serviceUrl ||
-    config.ml.serviceUrl === "http://localhost:8000"
-  ) {
-    console.log("[mqtt] ML service not configured, skipping anomaly check");
+  // Skip ML service if disabled via feature flag or URL not configured
+  if (!config.ml.enabled || !config.ml.serviceUrl) {
+    console.log("[MqttConsumer] ML disabled, skipping anomaly check");
     return;
   }
 
@@ -166,6 +163,8 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
   const parsed = parseTopic(topic);
   if (!parsed) return; // not an HR topic
 
+  console.log(`[MqttConsumer] Received topic: ${topic}`);
+
   // Parse JSON
   let rawObj: unknown;
   try {
@@ -189,6 +188,10 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
   }
 
   const { companyId, userId } = parsed;
+
+  console.log(
+    `[MqttConsumer] HR received: ${validated.hr} bpm | user_id=${userId} company_id=${companyId} session=${validated.session_id}`,
+  );
 
   // Classify HR zone (age unknown at this layer — zone will be 'unknown' unless enriched)
   // The BatchWriter enriches with age from DB; here we use 'unknown' as default
@@ -242,17 +245,37 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
 }
 
 export function startMqttConsumer(): void {
-  const client = mqtt.connect(config.mqtt.brokerInternal, {
+  const SUBSCRIBE_TOPIC = "fitsense/#";
+  const brokerUrl = config.mqtt.brokerInternal;
+
+  console.log(
+    `[MqttConsumer] Connecting to broker: ${brokerUrl} ...`,
+  );
+
+  const client = mqtt.connect(brokerUrl, {
     clientId: `api_consumer_${Date.now()}`,
     clean: true,
     reconnectPeriod: 5000,
   });
 
   client.on("connect", () => {
-    console.log("[MqttConsumer] Connected to MQTT broker");
-    client.subscribe("fitsense/#", { qos: 1 }, (err) => {
-      if (err) console.error("[MqttConsumer] Subscribe error:", err.message);
-      else console.log("[MqttConsumer] Subscribed to fitsense/#");
+    console.log(
+      `[MqttConsumer] Connected to MQTT broker: ${brokerUrl}`,
+    );
+    client.subscribe(SUBSCRIBE_TOPIC, { qos: 1 }, (err) => {
+      if (err) {
+        console.error(
+          `[MqttConsumer] Subscribe failed for topic '${SUBSCRIBE_TOPIC}':`,
+          err.message,
+        );
+      } else {
+        console.log(
+          `[MqttConsumer] Subscribed to '${SUBSCRIBE_TOPIC}' — ready to receive HR data from Flutter/IoT.`,
+        );
+        console.log(
+          `[MqttConsumer] Expected topic format: fitsense/{company_id}/{user_id}/hr`,
+        );
+      }
     });
   });
 
@@ -263,10 +286,16 @@ export function startMqttConsumer(): void {
   });
 
   client.on("error", (err) => {
-    console.error("[MqttConsumer] MQTT error:", err.message);
+    console.error("[MqttConsumer] Connection error:", err.message);
   });
 
   client.on("reconnect", () => {
-    console.log("[MqttConsumer] Reconnecting to MQTT broker...");
+    console.log(
+      `[MqttConsumer] Reconnecting to broker: ${brokerUrl} ...`,
+    );
+  });
+
+  client.on("disconnect", () => {
+    console.warn("[MqttConsumer] Disconnected from MQTT broker.");
   });
 }

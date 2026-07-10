@@ -20,14 +20,24 @@ const app: Application = express();
 
 // Security middleware
 app.use(helmet());
+
+// CORS — daftar origin yang diizinkan
+// Di production VPS, set env CORS_ORIGIN=http://YOUR_VPS_IP atau https://yourdomain.com
+const corsOrigins: (string | RegExp)[] = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:3100",
+  "http://127.0.0.1:3100",
+];
+
+// Tambahkan domain/IP VPS dari environment variable jika tersedia
+if (process.env.CORS_ORIGIN) {
+  corsOrigins.push(...process.env.CORS_ORIGIN.split(",").map((o) => o.trim()));
+}
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "http://localhost:3100",
-      "http://127.0.0.1:3100",
-    ],
+    origin: corsOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
