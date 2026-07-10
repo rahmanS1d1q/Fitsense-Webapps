@@ -71,6 +71,7 @@ dmypy.json
 eggs/
 .eggs/
 lib/
+!apps/web/lib/
 lib64/
 parts/
 sdist/
