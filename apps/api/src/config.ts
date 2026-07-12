@@ -32,6 +32,8 @@ export const config = {
   mqtt: {
     tokenExpiresIn: process.env.MQTT_TOKEN_EXPIRES_IN || "30m",
     brokerInternal: process.env.MQTT_BROKER_INTERNAL || "mqtt://localhost:1883",
+    internalUsername: process.env.MQTT_INTERNAL_USERNAME || "api_consumer",
+    internalPassword: process.env.MQTT_INTERNAL_PASSWORD || "",
   },
 
   // ML Feature Flag

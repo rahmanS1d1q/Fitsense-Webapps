@@ -256,6 +256,8 @@ export function startMqttConsumer(): void {
     clientId: `api_consumer_${Date.now()}`,
     clean: true,
     reconnectPeriod: 5000,
+    username: config.mqtt.internalUsername,
+    password: config.mqtt.internalPassword,
   });
 
   client.on("connect", () => {

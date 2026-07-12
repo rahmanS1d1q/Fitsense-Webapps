@@ -47,6 +47,9 @@ export function checkAcl(
     case "ml_service":
       return checkMlServiceAcl(companyId, userId, topic, action);
 
+    case "api_consumer":
+      return action === "subscribe" && topic === "fitsense/#";
+
     default:
       return false;
   }
@@ -137,7 +140,7 @@ function matchesSingleLevelAlerts(companyId: string, topic: string): boolean {
  * Requirements: 6.1, 6.2
  */
 router.post("/auth", async (req: Request, res: Response) => {
-  const { clientid, password } = req.body as {
+  const { clientid, username, password } = req.body as {
     clientid?: string;
     username?: string;
     password?: string;
@@ -145,6 +148,30 @@ router.post("/auth", async (req: Request, res: Response) => {
 
   if (!password || !clientid) {
     return res.json({ result: "deny" });
+  }
+
+  // Check if it's the internal API consumer background worker
+  if (
+    clientid.startsWith("api_consumer_") &&
+    username === config.mqtt.internalUsername &&
+    password === config.mqtt.internalPassword &&
+    Boolean(config.mqtt.internalPassword)
+  ) {
+    try {
+      const redis = getRedis();
+      await redis.setex(
+        `mqtt_session:${clientid}`,
+        86400,
+        JSON.stringify({
+          userId: "api_consumer",
+          companyId: "*",
+          role: "api_consumer",
+        }),
+      );
+      return res.json({ result: "allow" });
+    } catch {
+      return res.json({ result: "deny" });
+    }
   }
 
   try {
