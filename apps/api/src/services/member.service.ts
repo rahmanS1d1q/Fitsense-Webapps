@@ -186,6 +186,15 @@ export async function updateMember(
 ): Promise<Member> {
   const pool = getPool();
 
+  // Verify member belongs to company (IDOR / BOLA Prevention)
+  const check = await pool.query(
+    "SELECT id FROM users_companies WHERE user_id = $1 AND company_id = $2",
+    [userId, companyId],
+  );
+  if (check.rows.length === 0) {
+    throw Object.assign(new Error("Member not found"), { statusCode: 404 });
+  }
+
   const fields: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
