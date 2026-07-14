@@ -412,15 +412,10 @@ export default function Sidebar() {
   const [email, setEmail] = useState<string>("");
 
   useEffect(() => {
-    const jwt = sessionStorage.getItem("jwt");
-    if (!jwt) {
-      router.push("/login");
-      return;
-    }
     setRole(sessionStorage.getItem("role"));
     setName(sessionStorage.getItem("userName") ?? "User");
     setEmail(sessionStorage.getItem("email") ?? "");
-  }, [router]);
+  }, []);
 
   const roleLabel: Record<string, string> = {
     super_admin: "Super Admin",
