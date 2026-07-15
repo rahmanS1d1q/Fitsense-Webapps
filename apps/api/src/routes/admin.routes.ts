@@ -20,8 +20,30 @@ const router = Router();
  * Must respond in < 200ms.
  * Requirements: 16.3
  */
-router.get("/health", async (_req: Request, res: Response) => {
-  const start = Date.now();
+router.get("/health", async (req: Request, res: Response) => {
+  // Fix 6: Rate limit — max 10 requests per minute per IP to prevent DoS
+  try {
+    const { getRedis } = await import("../db/redis");
+    const redis = getRedis();
+    const ip =
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
+      req.socket.remoteAddress ??
+      "unknown";
+    const hlKey = `rate_limit:health:${ip}`;
+    const hlCount = await redis.incr(hlKey);
+    if (hlCount === 1) await redis.expire(hlKey, 60); // 1-minute window
+    if (hlCount > 10) {
+      return res.status(429).json({
+        error: {
+          code: "RATE_LIMIT_EXCEEDED",
+          message: "Too many health check requests",
+        },
+      });
+    }
+  } catch {
+    // Non-fatal: if Redis unavailable, allow health check through
+  }
+
   const checks: Record<string, "ok" | "error"> = {};
 
   // PostgreSQL check
@@ -61,13 +83,12 @@ router.get("/health", async (_req: Request, res: Response) => {
     checks.influxdb = "error";
   }
 
-  const elapsed = Date.now() - start;
   const allOk = Object.values(checks).every((v) => v === "ok");
 
+  // Fix 6: responseTimeMs removed — do not expose internal latency to public callers
   return res.status(200).json({
     status: allOk ? "ok" : "degraded",
     checks,
-    responseTimeMs: elapsed,
   });
 });
 

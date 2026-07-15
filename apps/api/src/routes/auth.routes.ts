@@ -7,17 +7,38 @@ import { getRedis } from "../db/redis";
 
 const router = Router();
 
-const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_TTL = 900; // 15 minutes in seconds
 
-async function checkLoginRateLimit(ip: string): Promise<boolean> {
-  const redis = getRedis();
-  const key = `rate_limit:login:${ip}`;
+// --- Rate limiter helpers (Fix 6) ---
+
+async function checkRateLimit(
+  redis: ReturnType<typeof getRedis>,
+  key: string,
+  max: number,
+): Promise<boolean> {
   const count = await redis.incr(key);
   if (count === 1) {
     await redis.expire(key, RATE_LIMIT_TTL);
   }
-  return count > RATE_LIMIT_MAX;
+  return count > max;
+}
+
+// Login: max 5 failed attempts per 15 min (existing behaviour preserved)
+async function checkLoginRateLimit(ip: string): Promise<boolean> {
+  const redis = getRedis();
+  return checkRateLimit(redis, `rate_limit:login:${ip}`, 5);
+}
+
+// Register-member: max 10 requests per 15 min per IP
+async function checkRegisterRateLimit(ip: string): Promise<boolean> {
+  const redis = getRedis();
+  return checkRateLimit(redis, `rate_limit:register:${ip}`, 10);
+}
+
+// Forgot-password: max 5 requests per 15 min per IP
+async function checkForgotPasswordRateLimit(ip: string): Promise<boolean> {
+  const redis = getRedis();
+  return checkRateLimit(redis, `rate_limit:forgot_password:${ip}`, 5);
 }
 
 async function recordFailedLogin(ip: string): Promise<void> {
@@ -44,7 +65,7 @@ router.post("/login", async (req: Request, res: Response) => {
   const rateLimitKey = `rate_limit:login:${ip}`;
   const currentCount = parseInt((await redis.get(rateLimitKey)) ?? "0", 10);
 
-  if (currentCount >= RATE_LIMIT_MAX) {
+  if (currentCount >= 5) {
     return res.status(429).json({
       error: {
         code: "RATE_LIMIT_EXCEEDED",
@@ -130,7 +151,9 @@ router.post("/refresh", async (req: Request, res: Response) => {
  */
 router.post("/logout", authMiddleware, async (req: Request, res: Response) => {
   const userId = req.user!.userId;
-  await AuthService.logout(userId);
+  // Fix 4b: Pass the raw token so auth.service can blacklist it in Redis
+  const token = req.headers.authorization!.slice(7);
+  await AuthService.logout(userId, token);
   return res.json({ message: "Logged out successfully" });
 });
 
@@ -284,6 +307,26 @@ router.post("/register-club", async (req: Request, res: Response) => {
  * Requirements: 18.2–18.7
  */
 router.post("/register-member", async (req: Request, res: Response) => {
+  // Fix 6: Rate limit — max 10 registrations per 15 min per IP
+  const ip =
+    (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
+    req.socket.remoteAddress ??
+    "unknown";
+  const redis = getRedis();
+  const registerKey = `rate_limit:register:${ip}`;
+  const currentRegisterCount = parseInt(
+    (await redis.get(registerKey)) ?? "0",
+    10,
+  );
+  if (currentRegisterCount >= 10) {
+    return res.status(429).json({
+      error: {
+        code: "RATE_LIMIT_EXCEEDED",
+        message: "Too many registration attempts. Try again in 15 minutes.",
+      },
+    });
+  }
+  await checkRegisterRateLimit(ip);
   const { code, firstName, lastName, name, email, password, date_of_birth } = req.body;
 
   // Support both firstName and legacy name field
@@ -348,6 +391,19 @@ router.post("/register-member", async (req: Request, res: Response) => {
  * Requirements: 19.1, 19.2, 19.6
  */
 router.post("/forgot-password", async (req: Request, res: Response) => {
+  // Fix 6: Rate limit — max 5 forgot-password requests per 15 min per IP
+  const ip =
+    (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
+    req.socket.remoteAddress ??
+    "unknown";
+  const redis = getRedis();
+  const fpKey = `rate_limit:forgot_password:${ip}`;
+  const currentFpCount = parseInt((await redis.get(fpKey)) ?? "0", 10);
+  if (currentFpCount >= 5) {
+    // Always return 200 to prevent enumeration, even when rate-limited
+    return res.status(200).json({ sent: false });
+  }
+  await checkForgotPasswordRateLimit(ip);
   const { email } = req.body;
 
   if (!email) {

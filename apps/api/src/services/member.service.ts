@@ -219,6 +219,16 @@ export async function updateMember(
     throw Object.assign(new Error("No fields to update"), { statusCode: 400 });
   }
 
+  // Security: Verify cross-tenant ownership — userId must be registered in companyId.
+  // This prevents BOLA where a club_owner of Company A can modify members of Company B.
+  const membershipCheck = await pool.query(
+    "SELECT 1 FROM users_companies WHERE user_id = $1 AND company_id = $2",
+    [userId, companyId],
+  );
+  if (membershipCheck.rows.length === 0) {
+    throw Object.assign(new Error("Member not found"), { statusCode: 404 });
+  }
+
   // Always update updated_at
   fields.push(`updated_at = NOW()`);
   values.push(userId);

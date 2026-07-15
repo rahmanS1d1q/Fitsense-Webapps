@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { getPool } from "../db/client";
@@ -230,9 +231,36 @@ export async function refresh(
   return { jwt: jwtToken, mqttToken };
 }
 
-export async function logout(userId: string): Promise<void> {
+/**
+ * Logout: invalidates refresh token AND blacklists the access token in Redis.
+ * The access token hash (sha256) is stored with TTL = remaining token lifetime.
+ * Plaintext JWT is never stored in Redis.
+ */
+export async function logout(userId: string, accessToken: string): Promise<void> {
   const redis = getRedis();
+
+  // Always revoke the refresh token
   await redis.del(`refresh_token:${userId}`);
+
+  // Blacklist the access token for its remaining lifetime
+  try {
+    const payload = jwt.decode(accessToken) as { exp?: number } | null;
+    if (payload?.exp) {
+      const now = Math.floor(Date.now() / 1000);
+      const ttl = payload.exp - now;
+      if (ttl > 0) {
+        // Store sha256 hash — never store the plaintext token
+        const tokenHash = crypto
+          .createHash("sha256")
+          .update(accessToken)
+          .digest("hex");
+        await redis.set(`jwt_blacklist:${tokenHash}`, "1", "EX", ttl);
+      }
+    }
+  } catch {
+    // Non-fatal: if blacklisting fails, the refresh token is already revoked
+    // which limits damage to the token's natural expiry
+  }
 }
 
 export async function issueMqttToken(
