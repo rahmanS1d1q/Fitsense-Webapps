@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -17,9 +18,10 @@ import PasswordInput from "../../../../components/forms/PasswordInput";
 import FormCard from "../../../../components/forms/FormCard";
 import SubmitButton from "../../../../components/forms/SubmitButton";
 import Navbar from "../../../../components/Navbar";
-import { apiPatch, apiGet, getCompanyId, getUserId } from "../../../../lib/api";
+import { apiPatch, apiGet, apiPost, getCompanyId, getUserId } from "../../../../lib/api";
 
 export default function MemberProfilePage() {
+  const router = useRouter();
   const [toast, setToast] = useState("");
   const [toastType, setToastType] = useState<"success" | "error">("success");
   const [email, setEmail] = useState("");
@@ -116,19 +118,30 @@ export default function MemberProfilePage() {
   };
 
   const onPwdSubmit = async (data: ChangePasswordForm) => {
-    const { ok, data: res } = await apiPatch("/auth/change-password", {
+    const { ok, data: res } = await apiPost("/auth/change-password", {
       currentPassword: data.currentPassword,
       newPassword: data.newPassword,
+      confirmPassword: data.confirmPassword,
     });
 
     if (!ok) {
-      setPwdError("currentPassword", {
-        message: res?.error?.message ?? "Password lama salah",
-      });
+      const errorMsg = res?.error?.message ?? "Password lama salah atau data tidak valid";
+      if (errorMsg.toLowerCase().includes("baru tidak boleh sama")) {
+        setPwdError("newPassword", { message: errorMsg });
+      } else if (errorMsg.toLowerCase().includes("konfirmasi")) {
+        setPwdError("confirmPassword", { message: errorMsg });
+      } else {
+        setPwdError("currentPassword", { message: errorMsg });
+      }
       return;
     }
-    showToast("Password berhasil diubah", "success");
-    resetPwd();
+
+    if (typeof window !== "undefined") {
+      sessionStorage.clear();
+      localStorage.clear();
+    }
+    const successMsg = "Password changed successfully. Please login again.";
+    router.push(`/login?message=${encodeURIComponent(successMsg)}`);
   };
 
   return (

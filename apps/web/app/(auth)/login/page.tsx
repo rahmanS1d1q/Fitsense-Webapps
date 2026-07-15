@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const loginSchema = z.object({
   email: z
@@ -21,6 +21,17 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 export default function LoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const msg = params.get("message");
+      if (msg) {
+        setInfoMessage(msg);
+      }
+    }
+  }, []);
 
   const {
     register,
@@ -120,6 +131,12 @@ export default function LoginPage() {
           <p className="login-form-sub">
             Gunakan akun yang diberikan oleh gym kamu.
           </p>
+
+          {infoMessage && (
+            <div className="login-info-banner">
+              {infoMessage}
+            </div>
+          )}
 
           <form
             onSubmit={handleSubmit(onSubmit)}
@@ -386,6 +403,14 @@ export default function LoginPage() {
           border-left: 2px solid #b91c1c;
           font-size: 13px;
           color: #7f1d1d;
+        }
+        .login-info-banner {
+          padding: 10px 14px;
+          background: #f0fdf4;
+          border-left: 2px solid #16a34a;
+          font-size: 13px;
+          color: #14532d;
+          margin-bottom: 20px;
         }
 
         /* ── Submit ────────────────────────────────────── */

@@ -257,7 +257,7 @@ function getNavGroups(role: string | null): NavGroup[] {
           links: [
             {
               label: "Settings",
-              href: "#",
+              href: "/dashboard/settings/security",
               icon: Icon.Settings,
             },
           ],
@@ -329,6 +329,16 @@ function getNavGroups(role: string | null): NavGroup[] {
             },
           ],
         },
+        {
+          title: "SISTEM",
+          links: [
+            {
+              label: "Settings",
+              href: "/dashboard/settings/security",
+              icon: Icon.Settings,
+            },
+          ],
+        },
       ];
     case "trainer":
       return [
@@ -373,6 +383,16 @@ function getNavGroups(role: string | null): NavGroup[] {
               label: "Generate Kode",
               href: "/dashboard/trainer/invite",
               icon: Icon.Mail,
+            },
+          ],
+        },
+        {
+          title: "SISTEM",
+          links: [
+            {
+              label: "Settings",
+              href: "/dashboard/settings/security",
+              icon: Icon.Settings,
             },
           ],
         },

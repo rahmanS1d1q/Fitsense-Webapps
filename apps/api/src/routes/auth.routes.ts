@@ -41,6 +41,12 @@ async function checkForgotPasswordRateLimit(ip: string): Promise<boolean> {
   return checkRateLimit(redis, `rate_limit:forgot_password:${ip}`, 5);
 }
 
+// Change-password: max 5 requests per 15 min per user + IP
+async function checkChangePasswordRateLimit(userId: string, ip: string): Promise<boolean> {
+  const redis = getRedis();
+  return checkRateLimit(redis, `rate_limit:change_password:${userId}:${ip}`, 5);
+}
+
 async function recordFailedLogin(ip: string): Promise<void> {
   console.warn(
     "[auth] Failed login attempt from IP:",
@@ -548,6 +554,125 @@ router.patch(
         .json({
           error: { code: "INTERNAL_ERROR", message: "Internal server error" },
         });
+    }
+  },
+);
+
+/**
+ * POST /api/auth/change-password
+ * Change password and invalidate current sessions.
+ * Security Hardening Priority 2.
+ */
+router.post(
+  "/change-password",
+  authMiddleware,
+  async (req: Request, res: Response) => {
+    const userId = req.user!.userId;
+    const ip =
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
+      req.socket.remoteAddress ??
+      "unknown";
+
+    // Rate Limit: max 5 requests per 15 minutes per user + IP
+    try {
+      const redis = getRedis();
+      const rlKey = `rate_limit:change_password:${userId}:${ip}`;
+      const currentCount = parseInt((await redis.get(rlKey)) ?? "0", 10);
+      if (currentCount >= 5) {
+        return res.status(429).json({
+          error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Terlalu banyak percobaan ganti password. Silakan coba lagi dalam 15 menit.",
+          },
+        });
+      }
+      await checkChangePasswordRateLimit(userId, ip);
+    } catch {
+      // Fail-open for rate limiting in case Redis fails
+    }
+
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "currentPassword, newPassword, dan confirmPassword wajib diisi",
+        },
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Password baru minimal 8 karakter",
+        },
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Konfirmasi password baru tidak cocok",
+        },
+      });
+    }
+
+    if (newPassword === currentPassword) {
+      return res.status(400).json({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Password baru tidak boleh sama dengan password lama",
+        },
+      });
+    }
+
+    try {
+      const { getPool } = await import("../db/client");
+      const bcrypt = await import("bcryptjs");
+      const pool = getPool();
+
+      const userResult = await pool.query(
+        "SELECT password_hash FROM users WHERE id = $1",
+        [userId],
+      );
+      if (userResult.rows.length === 0) {
+        return res.status(404).json({
+          error: { code: "NOT_FOUND", message: "User tidak ditemukan" },
+        });
+      }
+
+      const valid = await bcrypt.compare(
+        currentPassword,
+        userResult.rows[0].password_hash,
+      );
+      if (!valid) {
+        return res.status(400).json({
+          error: { code: "INVALID_CREDENTIALS", message: "Password lama salah" },
+        });
+      }
+
+      const newHash = await bcrypt.hash(newPassword, 10);
+      await pool.query(
+        "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+        [newHash, userId],
+      );
+
+      // Invalidate current sessions: delete refresh token & blacklist access token
+      const token = req.headers.authorization!.slice(7);
+      await AuthService.logout(userId, token);
+
+      return res.json({
+        message: "Password changed successfully. Please login again.",
+      });
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      console.error("[auth] POST change-password error:", error.message);
+      return res.status(500).json({
+        error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+      });
     }
   },
 );
