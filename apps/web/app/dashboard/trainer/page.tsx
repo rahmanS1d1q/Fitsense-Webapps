@@ -14,6 +14,7 @@ import {
   Card,
 } from "../../../components/layout/PageContainer";
 import type { HRZone } from "../../../components/HRZoneBadge";
+import MqttDebugPanel from "../../../components/MqttDebugPanel";
 
 export default function TrainerDashboardPage() {
   const companyId =
@@ -91,6 +92,8 @@ export default function TrainerDashboardPage() {
           subtitle="Pantau heart rate semua member secara real-time"
           right={<ConnectionStatus status={status} />}
         />
+
+        <MqttDebugPanel />
 
         <PageSection>
           {/* Stats */}

@@ -61,8 +61,19 @@ export default function LoginPage() {
         return;
       }
 
-      const { jwt, mqttToken, user } = await res.json();
-      const role = user?.role;
+      const body = await res.json();
+      const jwt = body.jwt ?? body.token ?? body.accessToken;
+      const mqttToken = body.mqttToken ?? body.mqtt_token ?? "";
+      const user = body.user ?? {};
+      const role = user.role;
+
+      const resolvedUserId = user.id ?? user.user_id ?? "";
+      const resolvedCompanyId =
+        user.companyId ??
+        user.company_id ??
+        body.company?.id ??
+        body.company?.company_id ??
+        "";
 
       let mqttTokenExp = Date.now() + 30 * 60 * 1000;
       try {
@@ -77,14 +88,15 @@ export default function LoginPage() {
         sessionStorage.setItem("mqttToken", mqttToken ?? "");
         sessionStorage.setItem("mqttTokenExp", String(mqttTokenExp));
         sessionStorage.setItem("role", role ?? "");
-        sessionStorage.setItem("userId", user?.id ?? "");
-        sessionStorage.setItem("companyId", user?.companyId ?? "");
-        sessionStorage.setItem("email", user?.email ?? "");
-        const displayName = user?.firstName
+        sessionStorage.setItem("userId", resolvedUserId);
+        sessionStorage.setItem("companyId", resolvedCompanyId);
+        sessionStorage.setItem("email", user.email ?? "");
+        const displayName = user.firstName
           ? `${user.firstName} ${user.lastName ?? ""}`.trim()
           : "User";
         sessionStorage.setItem("userName", displayName);
       }
+
 
       if (role === "super_admin") router.push("/dashboard/admin");
       else if (role === "trainer" || role === "club_owner")

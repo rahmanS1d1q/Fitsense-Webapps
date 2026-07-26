@@ -14,6 +14,7 @@ import {
 } from "../../../components/layout/PageContainer";
 import { apiGet, apiPost } from "../../../lib/api";
 import BiometricConfirmDialog from "../../../components/sessions/BiometricConfirmDialog";
+import MqttDebugPanel from "../../../components/MqttDebugPanel";
 
 export default function MemberDashboardPage() {
   const companyId =
@@ -221,6 +222,8 @@ export default function MemberDashboardPage() {
           subtitle="Heart rate monitoring real-time"
           right={<ConnectionStatus status={status} />}
         />
+
+        <MqttDebugPanel />
 
         <PageSection>
           <AlertBanner
