@@ -50,6 +50,7 @@ export default function MqttDebugPanel() {
   const [userId, setUserId] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [mqttToken, setMqttToken] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -61,6 +62,50 @@ export default function MqttDebugPanel() {
 
   if (!ENABLED) return null;
   if (!userId && !companyId) return null;
+
+  if (!isOpen) {
+    return (
+      <div style={{ margin: "24px 0" }}>
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 18px",
+            fontSize: 12,
+            fontWeight: 700,
+            fontFamily: 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace',
+            letterSpacing: "0.02em",
+            border: "1px solid #f59e0b",
+            borderRadius: 8,
+            background: "linear-gradient(135deg, #1c1917 0%, #292524 100%)",
+            color: "#fbbf24",
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <span style={{ fontSize: 14 }}>🔧</span>
+          Show MQTT Debug
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              textTransform: "uppercase" as const,
+              color: "#1c1917",
+              background: "#f59e0b",
+              padding: "2px 6px",
+              borderRadius: 3,
+            }}
+          >
+            DEV
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   const topic = `fitsense/${companyId}/${userId}/hr`;
 
@@ -133,20 +178,40 @@ export default function MqttDebugPanel() {
             MQTT Debug Panel
           </span>
         </div>
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            color: "#1c1917",
-            background: "#f59e0b",
-            padding: "3px 8px",
-            borderRadius: 4,
-          }}
-        >
-          DEV ONLY
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+              color: "#1c1917",
+              background: "#f59e0b",
+              padding: "3px 8px",
+              borderRadius: 4,
+            }}
+          >
+            DEV ONLY
+          </span>
+          <button
+            type="button"
+            onClick={() => setIsOpen(false)}
+            style={{
+              padding: "4px 12px",
+              fontSize: 11,
+              fontWeight: 600,
+              fontFamily: "inherit",
+              border: "1px solid #44403c",
+              borderRadius: 5,
+              background: "transparent",
+              color: "#a8a29e",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            ✕ Hide Debug Panel
+          </button>
+        </div>
       </div>
 
       {/* Warning */}
