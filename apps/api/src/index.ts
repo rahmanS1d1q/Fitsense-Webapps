@@ -2,6 +2,7 @@ import app from "./app";
 import { config } from "./config";
 import { startDownsamplingJob } from "./services/downsampling.job";
 import { startMqttConsumer } from "./services/mqtt.consumer";
+import { startBatchWriter } from "./services/batch.writer";
 
 const PORT = config.port;
 
@@ -13,6 +14,10 @@ app.listen(PORT, () => {
   // start; the consumer auto-reconnects every 5 s (reconnectPeriod).
   console.log("[API] Starting MQTT consumer...");
   startMqttConsumer();
+
+  // Start BatchWriter — flushes Redis HR buffers to InfluxDB every 1 second
+  console.log("[API] Starting BatchWriter...");
+  startBatchWriter();
 
   // Start downsampling cron job (InfluxDB aggregation, runs daily at 02:00 UTC)
   startDownsamplingJob();
