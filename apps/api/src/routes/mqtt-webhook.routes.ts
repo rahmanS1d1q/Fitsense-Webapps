@@ -5,6 +5,23 @@ import { getRedis } from "../db/redis";
 
 const router = Router();
 
+// ─── Action normalizer ────────────────────────────────────────────────────────
+
+/**
+ * Normalizes EMQX action strings to canonical "publish" or "subscribe".
+ * EMQX may send uppercase or QoS-qualified variants, e.g.:
+ *   PUBLISH, SUBSCRIBE, SUBSCRIBE(Q0), SUBSCRIBE(Q1), SUBSCRIBE(Q2)
+ *
+ * Returns null for any unrecognized, empty, or non-string input.
+ */
+export function normalizeAction(action: unknown): "publish" | "subscribe" | null {
+  if (typeof action !== "string" || action.trim() === "") return null;
+  const lower = action.toLowerCase().trim();
+  if (lower === "publish" || lower.startsWith("publish")) return "publish";
+  if (lower === "subscribe" || lower.startsWith("subscribe")) return "subscribe";
+  return null;
+}
+
 // ─── Pure ACL check function (exported for property testing) ─────────────────
 
 /**
@@ -213,18 +230,19 @@ router.post("/auth", async (req: Request, res: Response) => {
  * Requirements: 6.3 – 6.11
  */
 router.post("/acl", async (req: Request, res: Response) => {
-  const { clientid, topic, action } = req.body as {
+  const { clientid, topic, action: rawAction } = req.body as {
     clientid?: string;
     username?: string;
     topic?: string;
     action?: string;
   };
 
-  if (!clientid || !topic || !action) {
+  if (!clientid || !topic || !rawAction) {
     return res.json({ result: "deny" });
   }
 
-  if (action !== "publish" && action !== "subscribe") {
+  const normalizedAction = normalizeAction(rawAction);
+  if (normalizedAction === null) {
     return res.json({ result: "deny" });
   }
 
@@ -247,7 +265,7 @@ router.post("/acl", async (req: Request, res: Response) => {
       session.userId,
       session.companyId,
       topic,
-      action,
+      normalizedAction,
     );
 
     return res.json({ result: allowed ? "allow" : "deny" });
