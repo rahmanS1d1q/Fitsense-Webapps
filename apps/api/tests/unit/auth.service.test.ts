@@ -168,7 +168,7 @@ describe("AuthService.logout", () => {
     const mockRedis = makeMockRedis();
     mockGetRedis.mockReturnValue(mockRedis);
 
-    await AuthService.logout("user-uuid");
+    await AuthService.logout("user-uuid", "dummy.access.token");
 
     expect(mockRedis.del).toHaveBeenCalledWith("refresh_token:user-uuid");
   });

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { createHash } from "crypto";
 import { authMiddleware } from "../middleware/auth.middleware";
 import * as AuthService from "../services/auth.service";
 import * as InviteService from "../services/invite.service";
@@ -8,8 +9,9 @@ import { getRedis } from "../db/redis";
 const router = Router();
 
 const RATE_LIMIT_TTL = 900; // 15 minutes in seconds
+const LOGIN_MAX_ATTEMPTS = 5;
 
-// --- Rate limiter helpers (Fix 6) ---
+// --- Rate limiter helpers ---
 
 async function checkRateLimit(
   redis: ReturnType<typeof getRedis>,
@@ -21,12 +23,6 @@ async function checkRateLimit(
     await redis.expire(key, RATE_LIMIT_TTL);
   }
   return count > max;
-}
-
-// Login: max 5 failed attempts per 15 min (existing behaviour preserved)
-async function checkLoginRateLimit(ip: string): Promise<boolean> {
-  const redis = getRedis();
-  return checkRateLimit(redis, `rate_limit:login:${ip}`, 5);
 }
 
 // Register-member: max 10 requests per 15 min per IP
@@ -45,6 +41,26 @@ async function checkForgotPasswordRateLimit(ip: string): Promise<boolean> {
 async function checkChangePasswordRateLimit(userId: string, ip: string): Promise<boolean> {
   const redis = getRedis();
   return checkRateLimit(redis, `rate_limit:change_password:${userId}:${ip}`, 5);
+}
+
+// --- Login account lockout helpers ---
+
+/**
+ * Normalizes an email for lockout key purposes:
+ * trims whitespace and converts to lowercase.
+ */
+export function normalizeLoginEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/**
+ * Generates a Redis key for per-account login lockout.
+ * Uses SHA-256 of the normalized email so the key is fixed-length
+ * and does not expose the raw email in Redis.
+ */
+export function accountLockoutKey(normalizedEmail: string): string {
+  const hash = createHash("sha256").update(normalizedEmail).digest("hex");
+  return `rate_limit:login_account:${hash}`;
 }
 
 async function recordFailedLogin(ip: string): Promise<void> {
@@ -66,20 +82,7 @@ router.post("/login", async (req: Request, res: Response) => {
     req.socket.remoteAddress ??
     "unknown";
 
-  // Check rate limit before attempting login
-  const redis = getRedis();
-  const rateLimitKey = `rate_limit:login:${ip}`;
-  const currentCount = parseInt((await redis.get(rateLimitKey)) ?? "0", 10);
-
-  if (currentCount >= 5) {
-    return res.status(429).json({
-      error: {
-        code: "RATE_LIMIT_EXCEEDED",
-        message: "Too many failed login attempts. Try again in 15 minutes.",
-      },
-    });
-  }
-
+  // Read email/password FIRST so the lockout key is account-scoped, not IP-scoped.
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -91,17 +94,44 @@ router.post("/login", async (req: Request, res: Response) => {
     });
   }
 
+  const normalizedEmail = normalizeLoginEmail(email);
+  const redis = getRedis();
+  const lockoutKey = accountLockoutKey(normalizedEmail);
+
+  // Check per-account lockout (NOT per-IP — prevents shared-proxy blocking)
+  const currentCount = parseInt((await redis.get(lockoutKey)) ?? "0", 10);
+  if (currentCount >= LOGIN_MAX_ATTEMPTS) {
+    return res.status(429).json({
+      error: {
+        code: "RATE_LIMIT_EXCEEDED",
+        message: "Too many failed login attempts. Try again in 15 minutes.",
+      },
+    });
+  }
+
   try {
-    const result = await AuthService.login(email, password);
-    // Reset rate limit on successful login
-    await redis.del(rateLimitKey);
+    const result = await AuthService.login(normalizedEmail, password);
+    // Reset account lockout on successful login
+    await redis.del(lockoutKey);
     return res.json(result);
   } catch (err: unknown) {
     const error = err as { statusCode?: number; message?: string };
     if (error.statusCode === 401) {
-      // Increment counter and log failed attempt
-      await checkLoginRateLimit(ip);
+      // Increment per-account counter and log failed attempt
+      const newCount = await redis.incr(lockoutKey);
+      if (newCount === 1) {
+        await redis.expire(lockoutKey, RATE_LIMIT_TTL);
+      }
       await recordFailedLogin(ip);
+      // If this attempt just crossed the threshold, return 429 immediately
+      if (newCount >= LOGIN_MAX_ATTEMPTS) {
+        return res.status(429).json({
+          error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Too many failed login attempts. Try again in 15 minutes.",
+          },
+        });
+      }
       return res.status(401).json({
         error: {
           code: "INVALID_CREDENTIALS",
