@@ -15,6 +15,7 @@ import workoutAssignmentsRouter from "./routes/workout-assignments";
 import assetsRouter from "./routes/assets.routes";
 import devicesRouter from "./routes/devices.routes";
 import auditRouter from "./routes/audit.routes";
+import mainCompaniesRouter from "./routes/main-companies.routes";
 
 const app: Application = express();
 
@@ -78,6 +79,9 @@ app.use("/api/clubs", inviteRouter);
 // Admin + health check routes
 app.use("/api", adminRouter);
 app.use("/api/admin/audit-logs", auditRouter);
+
+// Main company + branch management (super_admin only)
+app.use("/api/main-companies", mainCompaniesRouter);
 
 // Workout routes
 app.use("/api/companies", workoutsRouter);
