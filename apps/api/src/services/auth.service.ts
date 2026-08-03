@@ -38,6 +38,7 @@ export interface LoginResult {
 export interface RefreshResult {
   jwt: string;
   mqttToken: string;
+  refreshToken: string;
 }
 
 // Parse duration string like "7d", "30m" into seconds
@@ -228,7 +229,7 @@ export async function refresh(
     jwtExpiresInSeconds,
   );
 
-  return { jwt: jwtToken, mqttToken };
+  return { jwt: jwtToken, mqttToken, refreshToken: newRefreshToken };
 }
 
 /**

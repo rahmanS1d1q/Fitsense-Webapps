@@ -139,7 +139,7 @@ describe("AuthService.refresh", () => {
     });
   });
 
-  it("should return new jwt and mqttToken on valid refresh", async () => {
+  it("should return jwt, mqttToken, and new refreshToken on valid refresh", async () => {
     const mockRedis = makeMockRedis();
     mockRedis.get = jest.fn().mockResolvedValue("valid-refresh-token");
     mockUuidv4.mockReturnValue("new-refresh-token" as never);
@@ -160,6 +160,68 @@ describe("AuthService.refresh", () => {
 
     expect(result.jwt).toBeDefined();
     expect(result.mqttToken).toBeDefined();
+    // P0 fix: refreshToken must be returned
+    expect(result.refreshToken).toBeDefined();
+    expect(result.refreshToken).toBe("new-refresh-token");
+  });
+
+  it("should return a refreshToken different from the old one (rotation)", async () => {
+    const OLD_TOKEN = "old-refresh-token-abc";
+    const NEW_TOKEN = "new-refresh-token-xyz";
+
+    const mockRedis = makeMockRedis();
+    mockRedis.get = jest.fn().mockResolvedValue(OLD_TOKEN);
+    mockUuidv4.mockReturnValue(NEW_TOKEN as never);
+    mockGetRedis.mockReturnValue(mockRedis);
+
+    const fakeUser = { id: "user-uuid", users_role: "member", status: "active" };
+    const fakeUc = { role: "member", company_id: "company-uuid" };
+    mockGetPool.mockReturnValue(makeMockPool([fakeUser], [fakeUc]));
+
+    const result = await AuthService.refresh("user-uuid", OLD_TOKEN);
+
+    expect(result.refreshToken).toBe(NEW_TOKEN);
+    expect(result.refreshToken).not.toBe(OLD_TOKEN);
+  });
+
+  it("should store the new refreshToken in Redis so a second refresh succeeds", async () => {
+    const OLD_TOKEN = "old-refresh-token";
+    const NEW_TOKEN = "new-refresh-token";
+
+    const mockRedis = makeMockRedis();
+    // First refresh: Redis returns OLD_TOKEN
+    mockRedis.get = jest.fn().mockResolvedValue(OLD_TOKEN);
+    mockUuidv4.mockReturnValue(NEW_TOKEN as never);
+    mockGetRedis.mockReturnValue(mockRedis);
+
+    const fakeUser = { id: "user-uuid", users_role: "member", status: "active" };
+    const fakeUc = { role: "member", company_id: "company-uuid" };
+    mockGetPool.mockReturnValue(makeMockPool([fakeUser], [fakeUc]));
+
+    const firstResult = await AuthService.refresh("user-uuid", OLD_TOKEN);
+    expect(firstResult.refreshToken).toBe(NEW_TOKEN);
+
+    // Verify Redis.set was called with the new token (so second refresh can use it)
+    expect(mockRedis.set).toHaveBeenCalledWith(
+      "refresh_token:user-uuid",
+      NEW_TOKEN,
+      "EX",
+      expect.any(Number),
+    );
+  });
+
+  it("should reject the old refreshToken after rotation (old token stored is gone)", async () => {
+    const OLD_TOKEN = "old-refresh-token";
+
+    const mockRedis = makeMockRedis();
+    // Simulate state after rotation: Redis now holds NEW_TOKEN, not OLD_TOKEN
+    mockRedis.get = jest.fn().mockResolvedValue("new-refresh-token");
+    mockGetRedis.mockReturnValue(mockRedis);
+
+    // Attempt to refresh with the OLD token — must fail
+    await expect(
+      AuthService.refresh("user-uuid", OLD_TOKEN),
+    ).rejects.toMatchObject({ statusCode: 401 });
   });
 });
 
